@@ -8,7 +8,6 @@ HDFilmCehennemi içeriklerini Stremio üzerinden izlemenizi sağlayan bir addon.
 - 🎙️ Çoklu ses seçeneği (Türkçe dublaj, orijinal ses)
 - 📝 Altyazı desteği
 - 🔄 Otomatik alternatif kaynak geçişi
-- 🔍 IMDb ID ile otomatik içerik eşleştirme
 
 ## Kurulum
 
@@ -33,7 +32,7 @@ npm start
 
 Addon varsayılan olarak `http://localhost:7000` adresinde çalışır.
 
-### Addonu Test Etme
+### Addon'u Test Etme
 
 ```bash
 npm test
