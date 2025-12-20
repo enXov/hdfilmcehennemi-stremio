@@ -22,7 +22,7 @@ const defaultHeaders = {
 async function httpGet(url, referer = null) {
     const headers = { ...defaultHeaders };
     if (referer) headers['Referer'] = referer;
-    
+
     const response = await fetch(url, { headers });
     return response.text();
 }
@@ -32,7 +32,7 @@ async function httpGet(url, referer = null) {
  */
 function unpackJS(p, a, c, k) {
     k = k.split('|');
-    
+
     function decode(word) {
         let n = 0;
         for (const char of word) {
@@ -46,7 +46,7 @@ function unpackJS(p, a, c, k) {
         }
         return n < k.length && k[n] ? k[n] : word;
     }
-    
+
     return p.replace(/\b\w+\b/g, decode);
 }
 
@@ -58,7 +58,7 @@ function decodeVideoUrl(parts) {
     value = value.split('').reverse().join('');
     value = Buffer.from(value, 'base64').toString('utf8');
     value = Buffer.from(value, 'base64').toString('latin1');
-    
+
     let unmix = '';
     for (let i = 0; i < value.length; i++) {
         let charCode = value.charCodeAt(i);
@@ -75,13 +75,13 @@ async function scrapeIframe(iframeSrc) {
     try {
         const html = await httpGet(iframeSrc, BASE_URL);
         const $ = cheerio.load(html);
-        
+
         const result = {
             videoUrl: null,
             subtitles: [],
             audioTracks: []
         };
-        
+
         // <track> elementlerinden altyazıları çek
         $('video track').each((i, el) => {
             const src = $(el).attr('src');
@@ -96,10 +96,10 @@ async function scrapeIframe(iframeSrc) {
                 });
             }
         });
-        
+
         // Packed JS'i decode et
         const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.+)',(\d+),(\d+),'([^']+)'/s);
-        
+
         if (packedMatch) {
             const decoded = unpackJS(
                 packedMatch[1],
@@ -107,14 +107,14 @@ async function scrapeIframe(iframeSrc) {
                 parseInt(packedMatch[3]),
                 packedMatch[4]
             );
-            
+
             // Video URL'sini decode et
             const partsMatch = decoded.match(/dc_\w+\(\[([^\]]+)\]\)/);
             if (partsMatch) {
                 const parts = partsMatch[1].match(/"([^"]+)"/g).map(s => s.replace(/"/g, ''));
                 result.videoUrl = decodeVideoUrl(parts);
             }
-            
+
             // m3u8'den ses track'lerini çek
             if (result.videoUrl) {
                 try {
@@ -122,7 +122,7 @@ async function scrapeIframe(iframeSrc) {
                     const baseM3u8 = result.videoUrl.substring(0, result.videoUrl.lastIndexOf('/'));
                     const audioRegex = /#EXT-X-MEDIA:TYPE=AUDIO.*?NAME="([^"]+)".*?URI="([^"]+)"/g;
                     let match;
-                    
+
                     while ((match = audioRegex.exec(m3u8Content)) !== null) {
                         result.audioTracks.push({
                             name: match[1],
@@ -134,9 +134,9 @@ async function scrapeIframe(iframeSrc) {
                 }
             }
         }
-        
+
         return result;
-        
+
     } catch (error) {
         console.error('iframe scrape hatası:', error.message);
         return null;
@@ -151,16 +151,16 @@ async function getVideoAndSubtitles(pageUrl) {
     try {
         const html = await httpGet(pageUrl);
         const $ = cheerio.load(html);
-        
+
         // iframe'i bul
         const iframe = $('iframe');
         const iframeSrc = iframe.attr('src') || iframe.attr('data-src');
-        
+
         if (!iframeSrc) {
             console.log('iframe bulunamadı!');
             return null;
         }
-        
+
         // Alternatif kaynakları bul
         const altSources = [];
         $('.alternative-link').each((i, el) => {
@@ -170,30 +170,30 @@ async function getVideoAndSubtitles(pageUrl) {
                 active: $(el).attr('data-active') === '1'
             });
         });
-        
+
         // Aktif kaynağı dene
         let result = await scrapeIframe(iframeSrc);
-        
+
         // Fallback: Eğer video URL alınamadıysa alternatif kaynakları dene
         if (!result || !result.videoUrl) {
             console.log('İlk kaynak başarısız, alternatifler deneniyor...');
-            
+
             const videoIdMatch = iframeSrc.match(/embed\/([^\/\?]+)/);
             if (videoIdMatch) {
                 const videoId = videoIdMatch[1];
-                
+
                 for (const alt of altSources) {
                     if (alt.active) continue;
-                    
+
                     console.log(`Deneniyor: ${alt.name}`);
-                    
+
                     let altIframeSrc = iframeSrc;
                     if (alt.name.toLowerCase() === 'rapidrame') {
                         altIframeSrc = `${EMBED_BASE}/video/embed/${videoId}/?rapidrame_id=${alt.videoId}`;
                     } else {
                         altIframeSrc = `${EMBED_BASE}/video/embed/${videoId}/`;
                     }
-                    
+
                     const altResult = await scrapeIframe(altIframeSrc);
                     if (altResult && altResult.videoUrl) {
                         result = altResult;
@@ -208,13 +208,13 @@ async function getVideoAndSubtitles(pageUrl) {
                 result.source = activeSource.name;
             }
         }
-        
+
         if (result) {
             result.alternativeSources = altSources;
         }
-        
+
         return result;
-        
+
     } catch (error) {
         console.error('Hata:', error.message);
         return null;
@@ -228,10 +228,10 @@ async function getSeriesEpisodes(seriesUrl) {
     try {
         const html = await httpGet(seriesUrl);
         const $ = cheerio.load(html);
-        
+
         const episodes = [];
         const seen = new Set();
-        
+
         $('a[href*="sezon"][href*="bolum"]').each((i, el) => {
             const href = $(el).attr('href');
             if (href && !seen.has(href)) {
@@ -242,7 +242,7 @@ async function getSeriesEpisodes(seriesUrl) {
                 seen.add(href);
             }
         });
-        
+
         return episodes;
     } catch (error) {
         console.error('Bölüm listesi hatası:', error.message);
@@ -255,16 +255,16 @@ async function getSeriesEpisodes(seriesUrl) {
  */
 function toStremioStreams(result, title = 'HDFilmCehennemi') {
     if (!result || !result.videoUrl) return { streams: [] };
-    
+
     const streams = [];
-    
+
     // Her ses track'i için ayrı stream oluştur
     if (result.audioTracks.length > 0) {
         for (const audio of result.audioTracks) {
             streams.push({
                 url: result.videoUrl,
-                title: `${title} - ${audio.name}`,
-                name: result.source || 'HDFC',
+                title: audio.name,
+                name: 'HDFilmCehennemi',
                 audioTrack: audio.name,
                 audioTrackUrl: audio.url,
                 subtitles: result.subtitles.map(s => ({
@@ -279,8 +279,8 @@ function toStremioStreams(result, title = 'HDFilmCehennemi') {
         // Ses track'i yoksa tek stream
         streams.push({
             url: result.videoUrl,
-            title: `${title}`,
-            name: result.source || 'HDFC',
+            title: 'Original audio',
+            name: 'HDFilmCehennemi',
             subtitles: result.subtitles.map(s => ({
                 id: s.id,
                 url: s.url,
@@ -289,7 +289,7 @@ function toStremioStreams(result, title = 'HDFilmCehennemi') {
             }))
         });
     }
-    
+
     return { streams };
 }
 
