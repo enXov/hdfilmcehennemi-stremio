@@ -252,11 +252,10 @@ async function getSeriesEpisodes(seriesUrl) {
 
 /**
  * Stremio stream formatına çevir
+ * Audio track seçimi Stremio player tarafından m3u8'den otomatik yapılır
  */
 function toStremioStreams(result, title = 'HDFilmCehennemi') {
     if (!result || !result.videoUrl) return { streams: [] };
-
-    const streams = [];
 
     // Video sunucusu Referer header'ı istiyor - yoksa 404 döner
     const behaviorHints = {
@@ -269,27 +268,11 @@ function toStremioStreams(result, title = 'HDFilmCehennemi') {
         }
     };
 
-    // Her ses track'i için ayrı stream oluştur
-    if (result.audioTracks.length > 0) {
-        for (const audio of result.audioTracks) {
-            streams.push({
-                url: result.videoUrl,
-                title: audio.name,
-                name: 'HDFilmCehennemi',
-                behaviorHints: behaviorHints,
-                subtitles: result.subtitles.map(s => ({
-                    id: s.id,
-                    url: s.url,
-                    lang: s.lang,
-                    label: s.label
-                }))
-            });
-        }
-    } else {
-        // Ses track'i yoksa tek stream
-        streams.push({
+    // Tek stream döndür - ses track'leri player tarafından m3u8'den seçilir
+    return {
+        streams: [{
             url: result.videoUrl,
-            title: 'Original audio',
+            title: title,
             name: 'HDFilmCehennemi',
             behaviorHints: behaviorHints,
             subtitles: result.subtitles.map(s => ({
@@ -298,10 +281,8 @@ function toStremioStreams(result, title = 'HDFilmCehennemi') {
                 lang: s.lang,
                 label: s.label
             }))
-        });
-    }
-
-    return { streams };
+        }]
+    };
 }
 
 module.exports = {
