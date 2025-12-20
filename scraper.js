@@ -258,6 +258,17 @@ function toStremioStreams(result, title = 'HDFilmCehennemi') {
 
     const streams = [];
 
+    // Video sunucusu Referer header'ı istiyor - yoksa 404 döner
+    const behaviorHints = {
+        notWebReady: true,
+        proxyHeaders: {
+            request: {
+                'Referer': EMBED_BASE + '/',
+                'Origin': EMBED_BASE
+            }
+        }
+    };
+
     // Her ses track'i için ayrı stream oluştur
     if (result.audioTracks.length > 0) {
         for (const audio of result.audioTracks) {
@@ -265,8 +276,7 @@ function toStremioStreams(result, title = 'HDFilmCehennemi') {
                 url: result.videoUrl,
                 title: audio.name,
                 name: 'HDFilmCehennemi',
-                audioTrack: audio.name,
-                audioTrackUrl: audio.url,
+                behaviorHints: behaviorHints,
                 subtitles: result.subtitles.map(s => ({
                     id: s.id,
                     url: s.url,
@@ -281,6 +291,7 @@ function toStremioStreams(result, title = 'HDFilmCehennemi') {
             url: result.videoUrl,
             title: 'Original audio',
             name: 'HDFilmCehennemi',
+            behaviorHints: behaviorHints,
             subtitles: result.subtitles.map(s => ({
                 id: s.id,
                 url: s.url,
