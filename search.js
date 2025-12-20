@@ -8,7 +8,7 @@ const { fetch } = require('undici');
 const cheerio = require('cheerio');
 
 const BASE_URL = 'https://www.hdfilmcehennemi.ws';
-const CINEMETA_URL = 'https://v3-cinemeta.strem.io/meta';
+const CINEMETA_URL = 'https://cinemeta-live.strem.io/meta';
 
 // Basit in-memory cache
 const cache = new Map();
@@ -95,7 +95,7 @@ function turkishToAscii(str) {
 
 
 /**
- * HDFilmCehennemi'de başlık ara
+ * HDFilmCehennemi'de başlık ara (Yeni AJAX API)
  */
 async function searchOnSite(query) {
     const cacheKey = `search:${query}`;
@@ -103,54 +103,42 @@ async function searchOnSite(query) {
     if (cached) return cached;
 
     try {
-        const searchUrl = `${BASE_URL}/?s=${encodeURIComponent(query)}`;
-        const response = await fetch(searchUrl, { headers: defaultHeaders });
-        const html = await response.text();
-        const $ = cheerio.load(html);
-        
-        const results = [];
-        
-        // Arama sonuçlarını parse et
-        $('.movie-preview, .poster, article').each((i, el) => {
-            const $el = $(el);
-            const link = $el.find('a').first().attr('href') || $el.attr('href');
-            const title = $el.find('.title, h2, h3').first().text().trim() || 
-                         $el.find('a').first().attr('title') || 
-                         $el.find('img').attr('alt') || '';
-            const year = $el.find('.year, .date').first().text().trim();
-            
-            if (link && link.includes(BASE_URL)) {
-                results.push({
-                    url: link,
-                    title: title,
-                    year: year ? parseInt(year) : null,
-                    slug: link.replace(BASE_URL, '').replace(/\//g, '')
-                });
+        // AJAX arama endpoint'i - ?q= parametresi kullanılmalı
+        const searchUrl = `${BASE_URL}/search/?q=${encodeURIComponent(query)}`;
+        const response = await fetch(searchUrl, { 
+            headers: {
+                ...defaultHeaders,
+                'X-Requested-With': 'fetch',
+                'Accept': 'application/json'
             }
         });
         
-        // Alternatif: Direkt film kartlarını ara
-        if (results.length === 0) {
-            $('a[href*="hdfilmcehennemi"]').each((i, el) => {
-                const href = $(el).attr('href');
-                const title = $(el).attr('title') || $(el).text().trim();
+        const data = await response.json();
+        const results = [];
+        
+        // JSON response'dan HTML sonuçları parse et
+        if (data.results && Array.isArray(data.results)) {
+            for (const htmlStr of data.results) {
+                const $ = cheerio.load(htmlStr);
+                const link = $('a').attr('href');
+                const title = $('h4.title').text().trim() || $('img').attr('alt') || '';
+                const yearText = $('.year').text().trim();
+                const year = yearText ? parseInt(yearText) : null;
+                const type = $('.type').text().trim().toLowerCase();
                 
-                // Film/dizi sayfası URL'si mi kontrol et
-                if (href && !href.includes('?s=') && !href.includes('/tag/') && 
-                    !href.includes('/category/') && title) {
-                    const existing = results.find(r => r.url === href);
-                    if (!existing) {
-                        results.push({
-                            url: href,
-                            title: title,
-                            year: null,
-                            slug: href.replace(BASE_URL, '').replace(/\//g, '')
-                        });
-                    }
+                if (link && link.includes('hdfilmcehennemi')) {
+                    results.push({
+                        url: link,
+                        title: title,
+                        year: year,
+                        type: type === 'dizi' ? 'series' : 'movie',
+                        slug: link.replace(BASE_URL, '').replace(/\//g, '')
+                    });
                 }
-            });
+            }
         }
         
+        console.log(`Arama "${query}": ${results.length} sonuç`);
         setCache(cacheKey, results);
         return results;
     } catch (error) {
@@ -300,7 +288,7 @@ async function findContent(type, imdbId, season = null, episode = null) {
     
     // 1. Cinemeta'dan başlık bilgisi al
     const meta = await getMetaFromCinemeta(type, imdbId);
-    if (!meta) {
+    if (!meta || !meta.name) {
         console.log('Cinemeta\'dan bilgi alınamadı');
         return null;
     }
@@ -309,29 +297,42 @@ async function findContent(type, imdbId, season = null, episode = null) {
     const year = meta.year ? parseInt(meta.year) : null;
     console.log(`Başlık: ${title} (${year || 'yıl bilinmiyor'})`);
     
-    // 2. HDFilmCehennemi'de ara
-    const searchResults = await searchOnSite(title);
-    console.log(`${searchResults.length} sonuç bulundu`);
+    // Arama stratejileri listesi
+    const searchQueries = [];
     
-    // 3. En iyi eşleşmeyi bul
-    let match = findBestMatch(searchResults, title, year);
+    // Ana başlık
+    searchQueries.push(title);
     
-    // Eşleşme bulunamadıysa alternatif aramalar dene
-    if (!match) {
-        // Orijinal başlık ile dene
-        if (meta.originalTitle && meta.originalTitle !== title) {
-            console.log(`Orijinal başlık deneniyor: ${meta.originalTitle}`);
-            const altResults = await searchOnSite(meta.originalTitle);
-            match = findBestMatch(altResults, meta.originalTitle, year);
-        }
+    // Orijinal başlık varsa
+    if (meta.originalTitle && meta.originalTitle !== title) {
+        searchQueries.push(meta.originalTitle);
+    }
+    
+    // Başlıktaki önemli kelimeleri çıkar (2+ karakter, sayılar hariç)
+    const words = title.split(/[\s:\-–—]+/).filter(w => w.length >= 3 && !/^\d+$/.test(w));
+    if (words.length > 1) {
+        // İlk iki kelime
+        searchQueries.push(words.slice(0, 2).join(' '));
+    }
+    if (words.length > 0 && words[0].length >= 4) {
+        // Sadece ilk kelime
+        searchQueries.push(words[0]);
+    }
+    
+    // Her stratejiyi dene
+    let match = null;
+    for (const query of searchQueries) {
+        if (match) break;
         
-        // Hala bulunamadıysa sadece ilk kelime ile dene
-        if (!match) {
-            const firstWord = title.split(' ')[0];
-            if (firstWord.length > 3) {
-                console.log(`İlk kelime deneniyor: ${firstWord}`);
-                const altResults = await searchOnSite(firstWord);
-                match = findBestMatch(altResults, title, year);
+        console.log(`Aranıyor: "${query}"`);
+        const searchResults = await searchOnSite(query);
+        
+        if (searchResults.length > 0) {
+            match = findBestMatch(searchResults, title, year);
+            
+            // Orijinal başlıkla da eşleştirmeyi dene
+            if (!match && meta.originalTitle) {
+                match = findBestMatch(searchResults, meta.originalTitle, year);
             }
         }
     }

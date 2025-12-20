@@ -3,7 +3,7 @@
  */
 
 const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
-const { getVideoAndSubtitles, toStremioStreams } = require('./index');
+const { getVideoAndSubtitles, toStremioStreams } = require('./scraper');
 const { findContent } = require('./search');
 
 const manifest = {
@@ -29,40 +29,40 @@ const builder = new addonBuilder(manifest);
  */
 builder.defineStreamHandler(async ({ type, id }) => {
     console.log(`Stream request: ${type} - ${id}`);
-    
+
     try {
         // IMDb ID'yi parse et
         const [imdbId, season, episode] = id.split(':');
-        
+
         if (!imdbId || !imdbId.startsWith('tt')) {
             console.log('Geçersiz IMDb ID');
             return { streams: [] };
         }
-        
+
         // HDFilmCehennemi'de içerik ara
         const content = await findContent(type, imdbId, season, episode);
-        
+
         if (!content) {
             console.log('İçerik bulunamadı');
             return { streams: [] };
         }
-        
+
         console.log(`İçerik bulundu: ${content.url}`);
-        
+
         // Video ve altyazı bilgilerini çek
         const result = await getVideoAndSubtitles(content.url);
-        
+
         if (!result || !result.videoUrl) {
             console.log('Video URL alınamadı');
             return { streams: [] };
         }
-        
+
         // Stremio formatına çevir
         const streams = toStremioStreams(result, content.title);
         console.log(`${streams.streams.length} stream döndürülüyor`);
-        
+
         return streams;
-        
+
     } catch (error) {
         console.error('Stream handler error:', error.message);
         return { streams: [] };

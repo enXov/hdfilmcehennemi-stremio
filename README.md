@@ -33,6 +33,12 @@ npm start
 
 Addon varsayılan olarak `http://localhost:7000` adresinde çalışır.
 
+### Addonu Test Etme
+
+```bash
+npm test
+```
+
 ### Stremio'ya Ekleme
 
 1. Addon'u başlat
@@ -44,18 +50,12 @@ Addon varsayılan olarak `http://localhost:7000` adresinde çalışır.
 
 Addon kurulduktan sonra, Stremio'da bir film veya dizi seçtiğinizde HDFilmCehennemi kaynakları otomatik olarak görünecektir.
 
-## Geliştirme
-
-```bash
-# Test çalıştır
-npm test
-```
 
 ## Proje Yapısı
 
 ```
 ├── addon.js      # Stremio addon sunucusu
-├── index.js      # Video/altyazı çekme modülü
+├── scraper.js    # Video/altyazı çekme modülü
 ├── search.js     # İçerik arama ve eşleştirme
 ├── test.js       # Test scripti
 └── package.json
