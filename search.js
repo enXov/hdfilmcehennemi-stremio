@@ -47,12 +47,12 @@ async function getMetaFromCinemeta(type, imdbId) {
     try {
         const url = `${CINEMETA_URL}/${type}/${imdbId}.json`;
         const response = await fetch(url);
-        
+
         if (!response.ok) {
             console.log(`Cinemeta yanıt vermedi: ${response.status}`);
             return null;
         }
-        
+
         const data = await response.json();
         if (data?.meta) {
             setCache(cacheKey, data.meta);
@@ -105,17 +105,17 @@ async function searchOnSite(query) {
     try {
         // AJAX arama endpoint'i - ?q= parametresi kullanılmalı
         const searchUrl = `${BASE_URL}/search/?q=${encodeURIComponent(query)}`;
-        const response = await fetch(searchUrl, { 
+        const response = await fetch(searchUrl, {
             headers: {
                 ...defaultHeaders,
                 'X-Requested-With': 'fetch',
                 'Accept': 'application/json'
             }
         });
-        
+
         const data = await response.json();
         const results = [];
-        
+
         // JSON response'dan HTML sonuçları parse et
         if (data.results && Array.isArray(data.results)) {
             for (const htmlStr of data.results) {
@@ -125,7 +125,7 @@ async function searchOnSite(query) {
                 const yearText = $('.year').text().trim();
                 const year = yearText ? parseInt(yearText) : null;
                 const type = $('.type').text().trim().toLowerCase();
-                
+
                 if (link && link.includes('hdfilmcehennemi')) {
                     results.push({
                         url: link,
@@ -137,7 +137,7 @@ async function searchOnSite(query) {
                 }
             }
         }
-        
+
         console.log(`Arama "${query}": ${results.length} sonuç`);
         setCache(cacheKey, results);
         return results;
@@ -153,20 +153,20 @@ async function searchOnSite(query) {
 function calculateSimilarity(str1, str2) {
     const s1 = normalizeTitle(str1);
     const s2 = normalizeTitle(str2);
-    
+
     if (s1 === s2) return 1;
-    
+
     // Kelime bazlı karşılaştırma
     const words1 = s1.split(' ').filter(w => w.length > 1);
     const words2 = s2.split(' ').filter(w => w.length > 1);
-    
+
     let matches = 0;
     for (const w1 of words1) {
         if (words2.some(w2 => w2.includes(w1) || w1.includes(w2))) {
             matches++;
         }
     }
-    
+
     const maxLen = Math.max(words1.length, words2.length);
     return maxLen > 0 ? matches / maxLen : 0;
 }
@@ -176,13 +176,13 @@ function calculateSimilarity(str1, str2) {
  */
 function findBestMatch(results, targetTitle, targetYear = null) {
     if (results.length === 0) return null;
-    
+
     let bestMatch = null;
     let bestScore = 0;
-    
+
     for (const result of results) {
         let score = calculateSimilarity(result.title, targetTitle);
-        
+
         // Yıl eşleşmesi bonus puan
         if (targetYear && result.year) {
             if (result.year === targetYear) {
@@ -191,20 +191,20 @@ function findBestMatch(results, targetTitle, targetYear = null) {
                 score += 0.1;
             }
         }
-        
+
         // Slug'da başlık geçiyorsa bonus
         const slugNorm = normalizeTitle(turkishToAscii(result.slug));
         const titleNorm = normalizeTitle(turkishToAscii(targetTitle));
         if (slugNorm.includes(titleNorm.split(' ')[0])) {
             score += 0.2;
         }
-        
+
         if (score > bestScore) {
             bestScore = score;
             bestMatch = result;
         }
     }
-    
+
     // Minimum eşik: %40 benzerlik
     return bestScore >= 0.4 ? bestMatch : null;
 }
@@ -216,15 +216,15 @@ function findBestMatch(results, targetTitle, targetYear = null) {
 async function findEpisodeUrl(seriesUrl, season, episode) {
     const cacheKey = `episodes:${seriesUrl}`;
     let episodes = getCached(cacheKey);
-    
+
     if (!episodes) {
         try {
             const response = await fetch(seriesUrl, { headers: defaultHeaders });
             const html = await response.text();
             const $ = cheerio.load(html);
-            
+
             episodes = [];
-            
+
             // Bölüm linklerini bul
             $('a').each((i, el) => {
                 const href = $(el).attr('href');
@@ -240,7 +240,7 @@ async function findEpisodeUrl(seriesUrl, season, episode) {
                     }
                 }
             });
-            
+
             // Alternatif format: sezon-X/bolum-Y
             if (episodes.length === 0) {
                 $('a').each((i, el) => {
@@ -258,19 +258,19 @@ async function findEpisodeUrl(seriesUrl, season, episode) {
                     }
                 });
             }
-            
+
             setCache(cacheKey, episodes);
         } catch (error) {
             console.error('Bölüm listesi hatası:', error.message);
             return null;
         }
     }
-    
+
     // İstenen bölümü bul
-    const targetEpisode = episodes.find(ep => 
+    const targetEpisode = episodes.find(ep =>
         ep.season === parseInt(season) && ep.episode === parseInt(episode)
     );
-    
+
     return targetEpisode?.url || null;
 }
 
@@ -285,66 +285,70 @@ async function findEpisodeUrl(seriesUrl, season, episode) {
  */
 async function findContent(type, imdbId, season = null, episode = null) {
     console.log(`İçerik aranıyor: ${type} - ${imdbId}${season ? ` S${season}E${episode}` : ''}`);
-    
-    // 1. Cinemeta'dan başlık bilgisi al
-    const meta = await getMetaFromCinemeta(type, imdbId);
-    if (!meta || !meta.name) {
-        console.log('Cinemeta\'dan bilgi alınamadı');
-        return null;
-    }
-    
-    const title = meta.name;
-    const year = meta.year ? parseInt(meta.year) : null;
-    console.log(`Başlık: ${title} (${year || 'yıl bilinmiyor'})`);
-    
-    // Arama stratejileri listesi
-    const searchQueries = [];
-    
-    // Ana başlık
-    searchQueries.push(title);
-    
-    // Orijinal başlık varsa
-    if (meta.originalTitle && meta.originalTitle !== title) {
-        searchQueries.push(meta.originalTitle);
-    }
-    
-    // Başlıktaki önemli kelimeleri çıkar (2+ karakter, sayılar hariç)
-    const words = title.split(/[\s:\-–—]+/).filter(w => w.length >= 3 && !/^\d+$/.test(w));
-    if (words.length > 1) {
-        // İlk iki kelime
-        searchQueries.push(words.slice(0, 2).join(' '));
-    }
-    if (words.length > 0 && words[0].length >= 4) {
-        // Sadece ilk kelime
-        searchQueries.push(words[0]);
-    }
-    
-    // Her stratejiyi dene
+
     let match = null;
-    for (const query of searchQueries) {
-        if (match) break;
-        
-        console.log(`Aranıyor: "${query}"`);
-        const searchResults = await searchOnSite(query);
-        
-        if (searchResults.length > 0) {
-            match = findBestMatch(searchResults, title, year);
-            
-            // Orijinal başlıkla da eşleştirmeyi dene
-            if (!match && meta.originalTitle) {
-                match = findBestMatch(searchResults, meta.originalTitle, year);
+
+    // 1. Önce direkt IMDb ID ile ara (en güvenilir yöntem)
+    console.log(`IMDb ID ile aranıyor: ${imdbId}`);
+    const imdbResults = await searchOnSite(imdbId);
+
+    if (imdbResults.length > 0) {
+        // IMDb araması genellikle tek sonuç döner, ilkini al
+        match = imdbResults[0];
+        console.log(`IMDb ID ile bulundu: ${match.title} -> ${match.url}`);
+    }
+
+    // 2. IMDb araması başarısız olduysa, Cinemeta'dan başlık al ve başlıkla ara
+    if (!match) {
+        console.log('IMDb ID ile bulunamadı, başlık ile aranıyor...');
+
+        const meta = await getMetaFromCinemeta(type, imdbId);
+        if (!meta || !meta.name) {
+            console.log('Cinemeta\'dan bilgi alınamadı');
+            return null;
+        }
+
+        const title = meta.name;
+        const year = meta.year ? parseInt(meta.year) : null;
+        console.log(`Başlık: ${title} (${year || 'yıl bilinmiyor'})`);
+
+        // Başlık arama stratejileri
+        const searchQueries = [title];
+
+        if (meta.originalTitle && meta.originalTitle !== title) {
+            searchQueries.push(meta.originalTitle);
+        }
+
+        // İlk kelime ile ara (fallback)
+        const firstWord = title.split(/[\s:\-–—]+/)[0];
+        if (firstWord && firstWord.length >= 4) {
+            searchQueries.push(firstWord);
+        }
+
+        for (const query of searchQueries) {
+            if (match) break;
+
+            console.log(`Aranıyor: "${query}"`);
+            const searchResults = await searchOnSite(query);
+
+            if (searchResults.length > 0) {
+                match = findBestMatch(searchResults, title, year);
+
+                if (!match && meta.originalTitle) {
+                    match = findBestMatch(searchResults, meta.originalTitle, year);
+                }
             }
         }
     }
-    
+
     if (!match) {
         console.log('Eşleşme bulunamadı');
         return null;
     }
-    
+
     console.log(`Eşleşme bulundu: ${match.title} -> ${match.url}`);
-    
-    // 4. Dizi ise bölüm URL'sini bul
+
+    // 3. Dizi ise bölüm URL'sini bul
     if (type === 'series' && season && episode) {
         const episodeUrl = await findEpisodeUrl(match.url, season, episode);
         if (!episodeUrl) {
@@ -357,7 +361,7 @@ async function findContent(type, imdbId, season = null, episode = null) {
             seriesTitle: match.title
         };
     }
-    
+
     return {
         url: match.url,
         title: match.title
