@@ -17,9 +17,11 @@ Bu addon'u kendi VPS/sunucunuzda çalıştırabilirsiniz.
 
 NOTLAR:
 Stremio sadece HTTPs kabul ediyor, yani bir domain veya reverse proxy şart.
-Eğer sunucunuz Türkiye dışında ise ki genellikle dışında olur o zaman normal proxy'e ihtiyacınız var. HDFilmCehennemi nedense erişimi Türkiye dışındaki ülkelere erişimi kısıtlamış(cloudflare). Fakat özellikle proxy belirlemenizi önermem çünkü şuanda public free proxy list kullanıyoruz Türkiye lokasyonlu.
+Eğer sunucunuz Türkiye dışında ise ki genellikle dışında olur o zaman normal proxy'e ihtiyacınız var. HDFilmCehennemi nedense erişimi Türkiye dışındaki ülkelere erişimi kısıtlamış(cloudflare). Fakat özellikle proxy belirlemenizi önermem çünkü şuanda public free https proxy list kullanıyoruz Türkiye lokasyonlu.
 
-FREE PUBLIC PROXY LIST GÜVENİLİR Mİ??????: kişiden kişiye değişir fakat %99 ihtimal ile güvenli, proxy sahibi sadece nereye istek attığınızı, isteğin içeriğni ve IP adresinizi görüyor fakat görse bir şey olmaz çünkü atılan istek zaten HDFilmCehennemi sitesi bunu bilse bir şey olmaz. Eğer çok endişeli iseniz film/dizi izledikten sonra modeminizi resetleyebilirsiniz(modem resetlendikten sonra IP adresiniz otomatik olarak değişecektir. Eski bir router'ınız yok ise). Sadece search/scraping için proxy kullanıyoruz, video url normal bir şekilde proxysiz oynatılıyor.
+FREE PUBLIC PROXY LIST GÜVENİLİR Mİ??????: kişiden kişiye değişir fakat %99.99999 ihtimal ile güvenli, proxy sahibi sadece SUNUCUNUZUN nereye istek attığını, SUNUCUNUZUN IP adresinizi görüyor ve bazı başka gereksiz şeyleri de görüyor fakat görse bir şey olmaz çünkü atılan istek zaten HDFilmCehennemi sitesi bunu bilse bir şey olmaz. Sadece search/scraping için proxy kullanıyoruz, video url normal bir şekilde proxysiz oynatılıyor.
+
+EĞER LOCALHOST DA ÇALIŞTIRIYOR İSENİZ PROXY AKTİF OLMAYACAKTIR!
 
 ### Seçenek 2: Yerel Olarak Çalıştırma
 
