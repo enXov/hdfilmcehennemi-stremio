@@ -114,6 +114,7 @@ async function testProxy(proxy) {
 /**
  * Get a working proxy for HDFilmCehennemi
  * Reuses cached working proxy if available, only tests new ones if needed
+ * Tests proxies in PARALLEL for speed
  * @returns {Promise<string|null>} Working proxy (ip:port) or null
  */
 async function getWorkingProxy() {
@@ -136,18 +137,26 @@ async function getWorkingProxy() {
         return null;
     }
 
-    // Shuffle and test proxies
+    // Shuffle and select proxies to test
     const shuffled = [...proxies].sort(() => Math.random() - 0.5);
     const toTest = shuffled.slice(0, CONFIG.maxProxiesToTest);
 
-    log.info(`Testing ${toTest.length} proxies...`);
+    log.info(`Testing ${toTest.length} proxies in parallel...`);
 
-    for (const proxy of toTest) {
-        if (await testProxy(proxy)) {
-            proxyListCache.workingProxies.push(proxy);
-            log.info(`Found working proxy: ${proxy}`);
-            return proxy;
-        }
+    // Test ALL proxies in parallel - much faster!
+    const results = await Promise.all(
+        toTest.map(async (proxy) => {
+            const works = await testProxy(proxy);
+            return { proxy, works };
+        })
+    );
+
+    // Find first working proxy
+    const working = results.find(r => r.works);
+    if (working) {
+        proxyListCache.workingProxies.push(working.proxy);
+        log.info(`Found working proxy: ${working.proxy}`);
+        return working.proxy;
     }
 
     log.warn('No working proxy found');
