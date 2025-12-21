@@ -9,14 +9,24 @@ HDFilmCehennemi içeriklerini Stremio üzerinden izlemenizi sağlayan bir addon.
 - 📝 Altyazı desteği
 - 🔄 Otomatik alternatif kaynak geçişi
 
-## Kurulum
+## Kurulum Seçenekleri
+
+### Seçenek 1: Kendi Sunucunuzda Çalıştırma
+
+Bu addon'u kendi VPS/sunucunuzda çalıştırabilirsiniz. Ben kendi VPS sunucumda domainsiz bir şekilde çalıştırdığım için link vermiyorum.
+
+### Seçenek 2: Yerel Olarak Çalıştırma
+
+Bilgisayarınızda yerel olarak çalıştırabilirsiniz (sadece aynı ağdaki cihazlarda çalışır).
+
+## 💻 Yerel Kurulum
 
 ### Gereksinimler
 
 - Node.js 18+
 - npm
 
-### Yerel Kurulum
+### Kurulum
 
 ```bash
 # Repoyu klonla
@@ -32,38 +42,50 @@ npm start
 
 Addon varsayılan olarak `http://localhost:7000` adresinde çalışır.
 
-### Addon'u Test Etme
+---
 
+## 🔧 Yapılandırma
+
+### Ortam Değişkenleri
+
+| Değişken | Varsayılan | Açıklama |
+|----------|------------|----------|
+| `PORT` | 7000 | Sunucu portu |
+| `LOG_LEVEL` | info | Log seviyesi (debug, info, warn, error) |
+
+Örnek:
 ```bash
-npm test
+PORT=8080 LOG_LEVEL=debug npm start
 ```
 
-### Stremio'ya Ekleme
+---
 
-1. Addon'u başlat
-2. Stremio'yu aç
-3. Ayarlar > Addons > Community Addons
-4. `http://localhost:7000/manifest.json` adresini ekle
-
-## Kullanım
-
-Addon kurulduktan sonra, Stremio'da bir film veya dizi seçtiğinizde HDFilmCehennemi kaynakları otomatik olarak görünecektir.
-
-
-## Proje Yapısı
+## 📁 Proje Yapısı
 
 ```
 ├── addon.js      # Stremio addon sunucusu
 ├── scraper.js    # Video/altyazı çekme modülü
 ├── search.js     # İçerik arama ve eşleştirme
+├── logger.js     # Log sistemi
+├── errors.js     # Hata sınıfları
 ├── test.js       # Test scripti
 └── package.json
 ```
 
-## Lisans
+---
+
+## 🧪 Test
+
+```bash
+npm test
+```
+
+---
+
+## 📜 Lisans
 
 MIT License - Detaylar için [LICENSE](LICENSE) dosyasına bakın.
 
-## Sorumluluk Reddi
+## ⚠️ Sorumluluk Reddi
 
-Bu addon yalnızca eğitim amaçlıdır. İçeriklerin telif hakları sahiplerine aittir.
+Bu addon yalnızca eğitim amaçlıdır. İçeriklerin telif hakları sahiplerine aittir. Addon geliştiricisi içeriklerden sorumlu değildir.
