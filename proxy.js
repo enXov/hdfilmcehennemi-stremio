@@ -31,7 +31,7 @@ let proxyListCache = {
 };
 
 /**
- * Fetch proxy list from TheSpeedX or custom URL
+ * Fetch proxy list from ProxyScrape or custom URL
  * @returns {Promise<string[]>} Array of proxy strings (ip:port)
  */
 async function fetchProxyList() {
@@ -61,12 +61,10 @@ async function fetchProxyList() {
 
         log.info(`Fetched ${proxies.length} proxies`);
 
-        // Update cache
-        proxyListCache = {
-            proxies: proxies,
-            timestamp: Date.now(),
-            workingProxies: [] // Reset working proxies on refresh
-        };
+        // Update cache - PRESERVE working proxies!
+        proxyListCache.proxies = proxies;
+        proxyListCache.timestamp = Date.now();
+        // Don't reset workingProxies - keep the ones that worked
 
         return proxies;
     } catch (error) {
@@ -115,7 +113,7 @@ async function testProxy(proxy) {
 
 /**
  * Get a working proxy for HDFilmCehennemi
- * Tests proxies from the list until one works
+ * Reuses cached working proxy if available, only tests new ones if needed
  * @returns {Promise<string|null>} Working proxy (ip:port) or null
  */
 async function getWorkingProxy() {
@@ -124,14 +122,14 @@ async function getWorkingProxy() {
         return null;
     }
 
-    // Return cached working proxy if available
+    // Return cached working proxy if available - no re-testing needed!
     if (proxyListCache.workingProxies.length > 0) {
         const proxy = proxyListCache.workingProxies[0];
-        log.debug(`Using cached working proxy: ${proxy}`);
+        log.info(`♻️ Reusing cached working proxy: ${proxy}`);
         return proxy;
     }
 
-    // Fetch fresh proxy list
+    // Fetch fresh proxy list (won't clear working proxies)
     const proxies = await fetchProxyList();
     if (proxies.length === 0) {
         log.warn('No proxies available');
