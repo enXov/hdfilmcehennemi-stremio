@@ -1,14 +1,22 @@
 /**
  * HDFilmCehennemi Stremio Addon Server
+ * 
+ * Main entry point for the Stremio addon.
+ * 
+ * @module addon
  */
 
 const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const { getVideoAndSubtitles, toStremioStreams } = require('./scraper');
-const { findContent } = require('./search');
+const { findContent, isValidImdbId } = require('./search');
+const { createLogger } = require('./logger');
+const { ContentNotFoundError, ScrapingError, ValidationError, NetworkError, TimeoutError } = require('./errors');
+
+const log = createLogger('Addon');
 
 const manifest = {
     id: 'community.hdfilmcehennemi',
-    version: '1.0.0',
+    version: '1.1.0',
     name: 'HDFilmCehennemi',
     description: 'HDFilmCehennemi üzerinden film ve dizi izleyin. Türkçe dublaj ve altyazı desteği.',
     logo: 'https://www.hdfilmcehennemi.ws/favicon.ico',
@@ -25,52 +33,80 @@ const manifest = {
 const builder = new addonBuilder(manifest);
 
 /**
- * Stream handler - IMDb ID ile içerik ara ve stream döndür
+ * Stream handler - Find content on HDFilmCehennemi and return streams
  */
 builder.defineStreamHandler(async ({ type, id }) => {
-    console.log(`Stream request: ${type} - ${id}`);
+    const startTime = Date.now();
+    log.info(`Stream request: ${type} - ${id}`);
 
     try {
-        // IMDb ID'yi parse et
+        // Parse IMDb ID
         const [imdbId, season, episode] = id.split(':');
 
-        if (!imdbId || !imdbId.startsWith('tt')) {
-            console.log('Geçersiz IMDb ID');
+        // Validate input
+        if (!imdbId) {
+            log.warn('Missing IMDb ID');
             return { streams: [] };
         }
 
-        // HDFilmCehennemi'de içerik ara
+        if (!isValidImdbId(imdbId)) {
+            log.warn(`Invalid IMDb ID format: ${imdbId}`);
+            return { streams: [] };
+        }
+
+        // Find content on HDFilmCehennemi
         const content = await findContent(type, imdbId, season, episode);
 
-        if (!content) {
-            console.log('İçerik bulunamadı');
-            return { streams: [] };
-        }
+        log.info(`Content found: ${content.url}`);
 
-        console.log(`İçerik bulundu: ${content.url}`);
-
-        // Video ve altyazı bilgilerini çek
+        // Extract video and subtitle data
         const result = await getVideoAndSubtitles(content.url);
 
-        if (!result || !result.videoUrl) {
-            console.log('Video URL alınamadı');
-            return { streams: [] };
-        }
-
-        // Stremio formatına çevir
+        // Convert to Stremio format
         const streams = toStremioStreams(result, content.title);
-        console.log(`${streams.streams.length} stream döndürülüyor`);
+
+        const elapsed = Date.now() - startTime;
+        log.info(`Returning ${streams.streams.length} stream(s) for ${imdbId} (${elapsed}ms)`);
 
         return streams;
 
     } catch (error) {
-        console.error('Stream handler error:', error.message);
+        const elapsed = Date.now() - startTime;
+
+        // Handle specific error types
+        if (error instanceof ValidationError) {
+            log.warn(`Validation error: ${error.message} (${elapsed}ms)`);
+            return { streams: [] };
+        }
+
+        if (error instanceof ContentNotFoundError) {
+            log.info(`Content not found: ${error.query} (${elapsed}ms)`);
+            return { streams: [] };
+        }
+
+        if (error instanceof ScrapingError) {
+            log.warn(`Scraping error: ${error.message} (${elapsed}ms)`);
+            return { streams: [] };
+        }
+
+        if (error instanceof TimeoutError) {
+            log.error(`Timeout: ${error.url} (${elapsed}ms)`);
+            return { streams: [] };
+        }
+
+        if (error instanceof NetworkError) {
+            log.error(`Network error: ${error.message} [${error.statusCode}] (${elapsed}ms)`);
+            return { streams: [] };
+        }
+
+        // Unknown error
+        log.error(`Unexpected error: ${error.message} (${elapsed}ms)`, error);
         return { streams: [] };
     }
 });
 
-// Server'ı başlat
+// Start server
 const PORT = process.env.PORT || 7000;
 
 serveHTTP(builder.getInterface(), { port: PORT });
-console.log(`HDFilmCehennemi Addon running at http://localhost:${PORT}/manifest.json`);
+log.info(`HDFilmCehennemi Addon v${manifest.version} running at http://localhost:${PORT}/manifest.json`);

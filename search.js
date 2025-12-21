@@ -1,18 +1,31 @@
 /**
  * HDFilmCehennemi Search & Matching Module
  * 
- * IMDb ID -> HDFilmCehennemi URL eşleştirmesi
+ * Handles content discovery: IMDb ID → HDFilmCehennemi URL mapping
+ * 
+ * @module search
  */
 
 const { fetch } = require('undici');
 const cheerio = require('cheerio');
+const { createLogger } = require('./logger');
+const { ContentNotFoundError, NetworkError, ValidationError, TimeoutError } = require('./errors');
+
+const log = createLogger('Search');
 
 const BASE_URL = 'https://www.hdfilmcehennemi.ws';
 const CINEMETA_URL = 'https://cinemeta-live.strem.io/meta';
 
-// Basit in-memory cache
+// Configuration
+const CONFIG = {
+    timeout: 15000,        // 15 seconds
+    maxRetries: 3,         // Number of retry attempts
+    retryDelay: 1000       // Base delay for exponential backoff (ms)
+};
+
+// Simple in-memory cache
 const cache = new Map();
-const CACHE_TTL = 30 * 60 * 1000; // 30 dakika
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 const defaultHeaders = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -21,23 +34,120 @@ const defaultHeaders = {
 };
 
 /**
- * Cache'den veri al veya yeni veri çek
+ * Sleep for specified milliseconds
+ * @param {number} ms - Milliseconds to sleep
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Validate IMDb ID format
+ * @param {string} imdbId - IMDb ID to validate
+ * @returns {boolean} True if valid
+ */
+function isValidImdbId(imdbId) {
+    return /^tt\d{7,8}$/.test(imdbId);
+}
+
+/**
+ * Validate season/episode numbers
+ * @param {*} value - Value to validate
+ * @returns {boolean} True if valid positive integer
+ */
+function isValidEpisodeNumber(value) {
+    const num = parseInt(value);
+    return !isNaN(num) && num > 0 && num < 1000;
+}
+
+/**
+ * Get cached data or null if expired
+ * @param {string} key - Cache key
+ * @returns {*} Cached data or null
  */
 function getCached(key) {
     const item = cache.get(key);
     if (item && Date.now() - item.timestamp < CACHE_TTL) {
+        log.debug(`Cache hit: ${key}`);
         return item.data;
     }
     cache.delete(key);
     return null;
 }
 
+/**
+ * Store data in cache
+ * @param {string} key - Cache key
+ * @param {*} data - Data to cache
+ */
 function setCache(key, data) {
     cache.set(key, { data, timestamp: Date.now() });
+    log.debug(`Cache set: ${key}`);
 }
 
 /**
- * Cinemeta'dan IMDb ID ile içerik bilgisi al
+ * HTTP GET with timeout and retry
+ * @param {string} url - URL to fetch
+ * @param {Object} [options] - Fetch options
+ * @returns {Promise<Response>}
+ */
+async function fetchWithRetry(url, options = {}) {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
+        try {
+            log.debug(`Fetch attempt ${attempt}/${CONFIG.maxRetries}: ${url}`);
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    throw new NetworkError(
+                        `HTTP ${response.status}: ${response.statusText}`,
+                        url,
+                        response.status
+                    );
+                }
+
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                throw error;
+            }
+
+        } catch (error) {
+            lastError = error;
+
+            if (error.name === 'AbortError') {
+                lastError = new TimeoutError(url, CONFIG.timeout);
+            } else if (!(error instanceof NetworkError)) {
+                lastError = new NetworkError(error.message, url);
+            }
+
+            if (attempt < CONFIG.maxRetries) {
+                const delay = CONFIG.retryDelay * Math.pow(2, attempt - 1);
+                log.warn(`Request failed, retrying in ${delay}ms...`);
+                await sleep(delay);
+            }
+        }
+    }
+
+    throw lastError;
+}
+
+/**
+ * Get content metadata from Cinemeta API
+ * @param {'movie'|'series'} type - Content type
+ * @param {string} imdbId - IMDb ID
+ * @returns {Promise<Object|null>} Content metadata or null
  */
 async function getMetaFromCinemeta(type, imdbId) {
     const cacheKey = `meta:${type}:${imdbId}`;
@@ -46,27 +156,28 @@ async function getMetaFromCinemeta(type, imdbId) {
 
     try {
         const url = `${CINEMETA_URL}/${type}/${imdbId}.json`;
-        const response = await fetch(url);
+        log.debug(`Fetching metadata from Cinemeta: ${imdbId}`);
 
-        if (!response.ok) {
-            console.log(`Cinemeta yanıt vermedi: ${response.status}`);
-            return null;
-        }
-
+        const response = await fetchWithRetry(url, { headers: defaultHeaders });
         const data = await response.json();
+
         if (data?.meta) {
             setCache(cacheKey, data.meta);
+            log.debug(`Cinemeta returned: ${data.meta.name} (${data.meta.year || 'unknown year'})`);
             return data.meta;
         }
+
         return null;
     } catch (error) {
-        console.error('Cinemeta hatası:', error.message);
+        log.warn(`Cinemeta fetch failed: ${error.message}`);
         return null;
     }
 }
 
 /**
- * Başlığı arama için normalize et
+ * Normalize title for comparison
+ * @param {string} title - Title to normalize
+ * @returns {string} Normalized title
  */
 function normalizeTitle(title) {
     return title
@@ -79,7 +190,9 @@ function normalizeTitle(title) {
 }
 
 /**
- * Türkçe karakterleri ASCII'ye çevir (URL slug için)
+ * Convert Turkish characters to ASCII (for URL slug matching)
+ * @param {string} str - String to convert
+ * @returns {string} ASCII string
  */
 function turkishToAscii(str) {
     const map = {
@@ -95,7 +208,9 @@ function turkishToAscii(str) {
 
 
 /**
- * HDFilmCehennemi'de başlık ara (Yeni AJAX API)
+ * Search for content on HDFilmCehennemi
+ * @param {string} query - Search query (IMDb ID or title)
+ * @returns {Promise<Array<{url: string, title: string, year: number|null, type: string, slug: string}>>}
  */
 async function searchOnSite(query) {
     const cacheKey = `search:${query}`;
@@ -103,9 +218,11 @@ async function searchOnSite(query) {
     if (cached) return cached;
 
     try {
-        // AJAX arama endpoint'i - ?q= parametresi kullanılmalı
+        // AJAX search endpoint - uses ?q= parameter
         const searchUrl = `${BASE_URL}/search/?q=${encodeURIComponent(query)}`;
-        const response = await fetch(searchUrl, {
+        log.info(`Searching: "${query}"`);
+
+        const response = await fetchWithRetry(searchUrl, {
             headers: {
                 ...defaultHeaders,
                 'X-Requested-With': 'fetch',
@@ -116,7 +233,7 @@ async function searchOnSite(query) {
         const data = await response.json();
         const results = [];
 
-        // JSON response'dan HTML sonuçları parse et
+        // Parse HTML snippets from JSON response
         if (data.results && Array.isArray(data.results)) {
             for (const htmlStr of data.results) {
                 const $ = cheerio.load(htmlStr);
@@ -138,17 +255,20 @@ async function searchOnSite(query) {
             }
         }
 
-        console.log(`Arama "${query}": ${results.length} sonuç`);
+        log.info(`Search "${query}": ${results.length} results`);
         setCache(cacheKey, results);
         return results;
     } catch (error) {
-        console.error('Arama hatası:', error.message);
+        log.error(`Search failed: ${error.message}`);
         return [];
     }
 }
 
 /**
- * İki başlığın benzerliğini hesapla (0-1 arası)
+ * Calculate title similarity score (0-1)
+ * @param {string} str1 - First title
+ * @param {string} str2 - Second title
+ * @returns {number} Similarity score
  */
 function calculateSimilarity(str1, str2) {
     const s1 = normalizeTitle(str1);
@@ -156,7 +276,7 @@ function calculateSimilarity(str1, str2) {
 
     if (s1 === s2) return 1;
 
-    // Kelime bazlı karşılaştırma
+    // Word-based comparison
     const words1 = s1.split(' ').filter(w => w.length > 1);
     const words2 = s2.split(' ').filter(w => w.length > 1);
 
@@ -172,7 +292,11 @@ function calculateSimilarity(str1, str2) {
 }
 
 /**
- * En iyi eşleşmeyi bul
+ * Find best matching result from search results
+ * @param {Array} results - Search results
+ * @param {string} targetTitle - Target title
+ * @param {number|null} [targetYear] - Target year
+ * @returns {Object|null} Best match or null
  */
 function findBestMatch(results, targetTitle, targetYear = null) {
     if (results.length === 0) return null;
@@ -183,7 +307,7 @@ function findBestMatch(results, targetTitle, targetYear = null) {
     for (const result of results) {
         let score = calculateSimilarity(result.title, targetTitle);
 
-        // Yıl eşleşmesi bonus puan
+        // Year match bonus
         if (targetYear && result.year) {
             if (result.year === targetYear) {
                 score += 0.3;
@@ -192,7 +316,7 @@ function findBestMatch(results, targetTitle, targetYear = null) {
             }
         }
 
-        // Slug'da başlık geçiyorsa bonus
+        // Slug contains title bonus
         const slugNorm = normalizeTitle(turkishToAscii(result.slug));
         const titleNorm = normalizeTitle(turkishToAscii(targetTitle));
         if (slugNorm.includes(titleNorm.split(' ')[0])) {
@@ -205,13 +329,23 @@ function findBestMatch(results, targetTitle, targetYear = null) {
         }
     }
 
-    // Minimum eşik: %40 benzerlik
-    return bestScore >= 0.4 ? bestMatch : null;
+    // Minimum threshold: 40% similarity
+    if (bestScore >= 0.4) {
+        log.debug(`Best match: "${bestMatch.title}" (score: ${bestScore.toFixed(2)})`);
+        return bestMatch;
+    }
+
+    log.debug(`No match above threshold (best score: ${bestScore.toFixed(2)})`);
+    return null;
 }
 
 
 /**
- * Dizi sayfasından bölüm URL'sini bul
+ * Find episode URL from series page
+ * @param {string} seriesUrl - Series page URL
+ * @param {number} season - Season number
+ * @param {number} episode - Episode number
+ * @returns {Promise<string|null>} Episode URL or null
  */
 async function findEpisodeUrl(seriesUrl, season, episode) {
     const cacheKey = `episodes:${seriesUrl}`;
@@ -219,17 +353,18 @@ async function findEpisodeUrl(seriesUrl, season, episode) {
 
     if (!episodes) {
         try {
-            const response = await fetch(seriesUrl, { headers: defaultHeaders });
+            log.debug(`Fetching episodes from: ${seriesUrl}`);
+            const response = await fetchWithRetry(seriesUrl, { headers: defaultHeaders });
             const html = await response.text();
             const $ = cheerio.load(html);
 
             episodes = [];
 
-            // Bölüm linklerini bul
+            // Find episode links
             $('a').each((i, el) => {
                 const href = $(el).attr('href');
                 if (href && href.includes('-sezon-') && href.includes('-bolum')) {
-                    // URL'den sezon ve bölüm numarasını çıkar
+                    // Extract season and episode from URL
                     const match = href.match(/(\d+)-sezon-(\d+)-bolum/);
                     if (match) {
                         episodes.push({
@@ -241,7 +376,7 @@ async function findEpisodeUrl(seriesUrl, season, episode) {
                 }
             });
 
-            // Alternatif format: sezon-X/bolum-Y
+            // Alternative format: sezon-X/bolum-Y
             if (episodes.length === 0) {
                 $('a').each((i, el) => {
                     const href = $(el).attr('href');
@@ -259,67 +394,97 @@ async function findEpisodeUrl(seriesUrl, season, episode) {
                 });
             }
 
+            log.debug(`Found ${episodes.length} episodes`);
             setCache(cacheKey, episodes);
         } catch (error) {
-            console.error('Bölüm listesi hatası:', error.message);
+            log.error(`Failed to get episodes: ${error.message}`);
             return null;
         }
     }
 
-    // İstenen bölümü bul
+    // Find requested episode
     const targetEpisode = episodes.find(ep =>
         ep.season === parseInt(season) && ep.episode === parseInt(episode)
     );
+
+    if (targetEpisode) {
+        log.debug(`Found episode: S${season}E${episode} -> ${targetEpisode.url}`);
+    } else {
+        log.warn(`Episode not found: S${season}E${episode}`);
+    }
 
     return targetEpisode?.url || null;
 }
 
 /**
- * IMDb ID'den HDFilmCehennemi URL'si bul
+ * Find HDFilmCehennemi URL for content by IMDb ID
  * 
- * @param {string} type - 'movie' veya 'series'
- * @param {string} imdbId - IMDb ID (tt1234567)
- * @param {number} season - Sezon numarası (sadece series için)
- * @param {number} episode - Bölüm numarası (sadece series için)
- * @returns {Promise<{url: string, title: string}|null>}
+ * @param {'movie'|'series'} type - Content type
+ * @param {string} imdbId - IMDb ID (e.g., tt0499549)
+ * @param {number} [season] - Season number (series only)
+ * @param {number} [episode] - Episode number (series only)
+ * @returns {Promise<{url: string, title: string, seriesTitle?: string}|null>}
+ * @throws {ValidationError|ContentNotFoundError}
  */
 async function findContent(type, imdbId, season = null, episode = null) {
-    console.log(`İçerik aranıyor: ${type} - ${imdbId}${season ? ` S${season}E${episode}` : ''}`);
+    // Input validation
+    if (!imdbId || typeof imdbId !== 'string') {
+        throw new ValidationError('IMDb ID gerekli', 'imdbId', imdbId);
+    }
+
+    if (!isValidImdbId(imdbId)) {
+        throw new ValidationError('Geçersiz IMDb ID formatı (örnek: tt1234567)', 'imdbId', imdbId);
+    }
+
+    if (type !== 'movie' && type !== 'series') {
+        throw new ValidationError('Tür movie veya series olmalı', 'type', type);
+    }
+
+    if (type === 'series') {
+        if (season && !isValidEpisodeNumber(season)) {
+            throw new ValidationError('Geçersiz sezon numarası', 'season', season);
+        }
+        if (episode && !isValidEpisodeNumber(episode)) {
+            throw new ValidationError('Geçersiz bölüm numarası', 'episode', episode);
+        }
+    }
+
+    log.info(`Finding content: ${type} - ${imdbId}${season ? ` S${season}E${episode}` : ''}`);
 
     let match = null;
 
-    // 1. Önce direkt IMDb ID ile ara (en güvenilir yöntem)
-    console.log(`IMDb ID ile aranıyor: ${imdbId}`);
+    // 1. Search by IMDb ID first (most reliable)
+    log.debug(`Searching by IMDb ID: ${imdbId}`);
     const imdbResults = await searchOnSite(imdbId);
 
     if (imdbResults.length > 0) {
-        // IMDb araması genellikle tek sonuç döner, ilkini al
+        // IMDb search usually returns single exact match
         match = imdbResults[0];
-        console.log(`IMDb ID ile bulundu: ${match.title} -> ${match.url}`);
+        log.info(`Found via IMDb ID: ${match.title} -> ${match.url}`);
     }
 
-    // 2. IMDb araması başarısız olduysa, Cinemeta'dan başlık al ve başlıkla ara
+    // 2. Fallback: Get title from Cinemeta and search by title
     if (!match) {
-        console.log('IMDb ID ile bulunamadı, başlık ile aranıyor...');
+        log.info('IMDb ID search failed, trying title search...');
 
         const meta = await getMetaFromCinemeta(type, imdbId);
         if (!meta || !meta.name) {
-            console.log('Cinemeta\'dan bilgi alınamadı');
-            return null;
+            log.warn('Could not get metadata from Cinemeta');
+            throw new ContentNotFoundError(imdbId, { type, reason: 'metadata_not_found' });
         }
 
         const title = meta.name;
         const year = meta.year ? parseInt(meta.year) : null;
-        console.log(`Başlık: ${title} (${year || 'yıl bilinmiyor'})`);
+        log.debug(`Title: ${title} (${year || 'unknown year'})`);
 
-        // Başlık arama stratejileri
+        // Title search strategies
         const searchQueries = [title];
 
         if (meta.originalTitle && meta.originalTitle !== title) {
             searchQueries.push(meta.originalTitle);
         }
 
-        // İlk kelime ile ara (fallback)
+        // First word fallback
         const firstWord = title.split(/[\s:\-–—]+/)[0];
         if (firstWord && firstWord.length >= 4) {
             searchQueries.push(firstWord);
@@ -328,7 +493,7 @@ async function findContent(type, imdbId, season = null, episode = null) {
         for (const query of searchQueries) {
             if (match) break;
 
-            console.log(`Aranıyor: "${query}"`);
+            log.debug(`Searching: "${query}"`);
             const searchResults = await searchOnSite(query);
 
             if (searchResults.length > 0) {
@@ -342,18 +507,21 @@ async function findContent(type, imdbId, season = null, episode = null) {
     }
 
     if (!match) {
-        console.log('Eşleşme bulunamadı');
-        return null;
+        log.warn(`No match found for: ${imdbId}`);
+        throw new ContentNotFoundError(imdbId, { type });
     }
 
-    console.log(`Eşleşme bulundu: ${match.title} -> ${match.url}`);
+    log.info(`Match found: ${match.title} -> ${match.url}`);
 
-    // 3. Dizi ise bölüm URL'sini bul
+    // 3. For series, find episode URL
     if (type === 'series' && season && episode) {
         const episodeUrl = await findEpisodeUrl(match.url, season, episode);
         if (!episodeUrl) {
-            console.log(`Bölüm bulunamadı: S${season}E${episode}`);
-            return null;
+            throw new ContentNotFoundError(`${match.title} S${season}E${episode}`, {
+                type: 'episode',
+                season,
+                episode
+            });
         }
         return {
             url: episodeUrl,
@@ -369,14 +537,17 @@ async function findContent(type, imdbId, season = null, episode = null) {
 }
 
 /**
- * Cache'i temizle
+ * Clear all cached data
  */
 function clearCache() {
+    const size = cache.size;
     cache.clear();
+    log.info(`Cache cleared (${size} entries)`);
 }
 
 /**
- * Cache istatistikleri
+ * Get cache statistics
+ * @returns {{size: number, keys: string[]}}
  */
 function getCacheStats() {
     return {
@@ -390,5 +561,6 @@ module.exports = {
     searchOnSite,
     getMetaFromCinemeta,
     clearCache,
-    getCacheStats
+    getCacheStats,
+    isValidImdbId
 };
