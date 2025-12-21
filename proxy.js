@@ -149,6 +149,7 @@ async function testProxy(proxy) {
  * Get a working proxy for HDFilmCehennemi
  * Reuses cached working proxy if available, only tests new ones if needed
  * Tests proxies in PARALLEL for speed
+ * KEEPS RETRYING until a working proxy is found (up to maxRetries)
  * @returns {Promise<string|null>} Working proxy (ip:port) or null
  */
 async function getWorkingProxy() {
@@ -164,36 +165,57 @@ async function getWorkingProxy() {
         return proxy;
     }
 
-    // Fetch fresh proxy list (won't clear working proxies)
-    const proxies = await fetchProxyList();
-    if (proxies.length === 0) {
-        log.warn('No proxies available');
-        return null;
+    const maxRetries = 5;
+    const retryDelay = 3000; // 3 seconds between retries
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        // Fetch fresh proxy list (force refresh on retry)
+        if (attempt > 1) {
+            proxyListCache.timestamp = 0; // Force refresh
+        }
+        const proxies = await fetchProxyList();
+
+        if (proxies.length === 0) {
+            log.warn('No proxies available from sources');
+            if (attempt < maxRetries) {
+                log.info(`Retrying in ${retryDelay / 1000}s... (attempt ${attempt}/${maxRetries})`);
+                await new Promise(r => setTimeout(r, retryDelay));
+                continue;
+            }
+            return null;
+        }
+
+        // Shuffle and select proxies to test
+        const shuffled = [...proxies].sort(() => Math.random() - 0.5);
+        const toTest = shuffled.slice(0, CONFIG.maxProxiesToTest);
+
+        log.info(`Testing ${toTest.length} proxies in parallel... (attempt ${attempt}/${maxRetries})`);
+
+        // Test ALL proxies in parallel - much faster!
+        const results = await Promise.all(
+            toTest.map(async (proxy) => {
+                const works = await testProxy(proxy);
+                return { proxy, works };
+            })
+        );
+
+        // Find first working proxy
+        const working = results.find(r => r.works);
+        if (working) {
+            proxyListCache.workingProxies.push(working.proxy);
+            log.info(`✅ Found working proxy: ${working.proxy}`);
+            return working.proxy;
+        }
+
+        log.warn(`No working proxy found in batch (attempt ${attempt}/${maxRetries})`);
+
+        if (attempt < maxRetries) {
+            log.info(`⏳ Retrying in ${retryDelay / 1000}s...`);
+            await new Promise(r => setTimeout(r, retryDelay));
+        }
     }
 
-    // Shuffle and select proxies to test
-    const shuffled = [...proxies].sort(() => Math.random() - 0.5);
-    const toTest = shuffled.slice(0, CONFIG.maxProxiesToTest);
-
-    log.info(`Testing ${toTest.length} proxies in parallel...`);
-
-    // Test ALL proxies in parallel - much faster!
-    const results = await Promise.all(
-        toTest.map(async (proxy) => {
-            const works = await testProxy(proxy);
-            return { proxy, works };
-        })
-    );
-
-    // Find first working proxy
-    const working = results.find(r => r.works);
-    if (working) {
-        proxyListCache.workingProxies.push(working.proxy);
-        log.info(`Found working proxy: ${working.proxy}`);
-        return working.proxy;
-    }
-
-    log.warn('No working proxy found');
+    log.error('Failed to find working proxy after all retries');
     return null;
 }
 
