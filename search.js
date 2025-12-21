@@ -6,7 +6,6 @@
  * @module search
  */
 
-const cloudscraper = require('cloudscraper');
 const { fetch } = require('undici');
 const cheerio = require('cheerio');
 const { createLogger } = require('./logger');
@@ -219,64 +218,46 @@ async function searchOnSite(query) {
     if (cached) return cached;
 
     try {
-        // AJAX search endpoint - uses /search?q= (no trailing slash before ?)
-        // Using cloudscraper to bypass Cloudflare protection
-        const searchUrl = `${BASE_URL}/search?q=${encodeURIComponent(query)}`;
+        // AJAX search endpoint - uses ?q= parameter
+        const searchUrl = `${BASE_URL}/search/?q=${encodeURIComponent(query)}`;
         log.info(`Searching: "${query}"`);
 
-        let lastError = null;
-        for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
-            try {
-                log.debug(`Search attempt ${attempt}/${CONFIG.maxRetries}: ${searchUrl}`);
+        const response = await fetchWithRetry(searchUrl, {
+            headers: {
+                ...defaultHeaders,
+                'X-Requested-With': 'fetch',
+                'Accept': 'application/json'
+            }
+        });
 
-                const response = await cloudscraper.get(searchUrl, {
-                    headers: {
-                        ...defaultHeaders,
-                        'X-Requested-With': 'fetch',
-                        'Accept': 'application/json'
-                    }
-                });
+        const data = await response.json();
+        const results = [];
 
-                const data = JSON.parse(response);
-                const results = [];
+        // Parse HTML snippets from JSON response
+        if (data.results && Array.isArray(data.results)) {
+            for (const htmlStr of data.results) {
+                const $ = cheerio.load(htmlStr);
+                const link = $('a').attr('href');
+                const title = $('h4.title').text().trim() || $('img').attr('alt') || '';
+                const yearText = $('.year').text().trim();
+                const year = yearText ? parseInt(yearText) : null;
+                const type = $('.type').text().trim().toLowerCase();
 
-                // Parse HTML snippets from JSON response
-                if (data.results && Array.isArray(data.results)) {
-                    for (const htmlStr of data.results) {
-                        const $ = cheerio.load(htmlStr);
-                        const link = $('a').attr('href');
-                        const title = $('h4.title').text().trim() || $('img').attr('alt') || '';
-                        const yearText = $('.year').text().trim();
-                        const year = yearText ? parseInt(yearText) : null;
-                        const type = $('.type').text().trim().toLowerCase();
-
-                        if (link && link.includes('hdfilmcehennemi')) {
-                            results.push({
-                                url: link,
-                                title: title,
-                                year: year,
-                                type: type === 'dizi' ? 'series' : 'movie',
-                                slug: link.replace(BASE_URL, '').replace(/\//g, '')
-                            });
-                        }
-                    }
-                }
-
-                log.info(`Search "${query}": ${results.length} results`);
-                setCache(cacheKey, results);
-                return results;
-            } catch (error) {
-                lastError = error;
-                if (attempt < CONFIG.maxRetries) {
-                    const delay = CONFIG.retryDelay * Math.pow(2, attempt - 1);
-                    log.warn(`Search request failed, retrying in ${delay}ms...`);
-                    await sleep(delay);
+                if (link && link.includes('hdfilmcehennemi')) {
+                    results.push({
+                        url: link,
+                        title: title,
+                        year: year,
+                        type: type === 'dizi' ? 'series' : 'movie',
+                        slug: link.replace(BASE_URL, '').replace(/\//g, '')
+                    });
                 }
             }
         }
 
-        log.error(`Search failed: ${lastError?.message}`);
-        return [];
+        log.info(`Search "${query}": ${results.length} results`);
+        setCache(cacheKey, results);
+        return results;
     } catch (error) {
         log.error(`Search failed: ${error.message}`);
         return [];
@@ -373,8 +354,8 @@ async function findEpisodeUrl(seriesUrl, season, episode) {
     if (!episodes) {
         try {
             log.debug(`Fetching episodes from: ${seriesUrl}`);
-            // Use cloudscraper for Cloudflare bypass
-            const html = await cloudscraper.get(seriesUrl, { headers: defaultHeaders });
+            const response = await fetchWithRetry(seriesUrl, { headers: defaultHeaders });
+            const html = await response.text();
             const $ = cheerio.load(html);
 
             episodes = [];
