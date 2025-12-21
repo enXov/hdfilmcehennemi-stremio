@@ -32,6 +32,10 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
+// Success-only cache - only caches fully successful results (video found & extracted)
+const streamCache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 /**
  * Stream handler - Find content on HDFilmCehennemi and return streams
  */
@@ -54,6 +58,15 @@ builder.defineStreamHandler(async ({ type, id }) => {
             return { streams: [] };
         }
 
+        // Check cache first - only contains successful results
+        const cacheKey = id;
+        const cached = streamCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            const elapsed = Date.now() - startTime;
+            log.info(`Cache hit for ${id} (${elapsed}ms)`);
+            return cached.data;
+        }
+
         // Find content on HDFilmCehennemi
         const content = await findContent(type, imdbId, season, episode);
 
@@ -67,6 +80,10 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
         const elapsed = Date.now() - startTime;
         log.info(`Returning ${streams.streams.length} stream(s) for ${imdbId} (${elapsed}ms)`);
+
+        // Cache ONLY on full success (we got here without errors)
+        streamCache.set(cacheKey, { data: streams, timestamp: Date.now() });
+        log.debug(`Cached successful result for: ${id}`);
 
         return streams;
 

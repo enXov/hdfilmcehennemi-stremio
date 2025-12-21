@@ -20,8 +20,9 @@ const CINEMETA_URL = 'https://cinemeta-live.strem.io/meta';
 // Configuration
 const CONFIG = {
     timeout: 15000,        // 15 seconds
-    maxRetries: 3,         // Number of retry attempts
-    retryDelay: 1000       // Base delay for exponential backoff (ms)
+    maxRetries: 3,         // Number of retry attempts per proxy
+    retryDelay: 1000,      // Base delay for exponential backoff (ms)
+    maxProxyAttempts: 5    // Max number of different proxies to try
 };
 
 // Simple in-memory cache
@@ -97,7 +98,70 @@ function setCache(key, data) {
 }
 
 /**
+ * Try to fetch URL using a specific proxy with retries
+ * @param {string} url - URL to fetch
+ * @param {string} proxy - Proxy to use (ip:port)
+ * @param {Object} options - Fetch options
+ * @returns {Promise<Response|null>} Response or null if all retries failed
+ */
+async function tryFetchWithProxy(url, proxy, options) {
+    for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
+        try {
+            log.debug(`Fetch via proxy ${proxy} attempt ${attempt}/${CONFIG.maxRetries}: ${url}`);
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
+            const dispatcher = createProxyAgent(proxy);
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal,
+                    dispatcher
+                });
+                clearTimeout(timeoutId);
+
+                if (response.status === 403) {
+                    log.warn(`Proxy ${proxy} blocked by Cloudflare (403)`);
+                    return null; // Proxy is blocked, don't retry
+                }
+
+                if (!response.ok) {
+                    throw new NetworkError(
+                        `HTTP ${response.status}: ${response.statusText}`,
+                        url,
+                        response.status
+                    );
+                }
+
+                log.info(`✅ Fetch via proxy success: ${url}`);
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                throw error;
+            }
+
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                log.warn(`Proxy ${proxy} timeout on attempt ${attempt}`);
+            } else {
+                log.warn(`Proxy ${proxy} failed on attempt ${attempt}: ${error.message}`);
+            }
+
+            if (attempt < CONFIG.maxRetries) {
+                const delay = CONFIG.retryDelay * Math.pow(2, attempt - 1);
+                log.warn(`Proxy request failed, retrying in ${delay}ms...`);
+                await sleep(delay);
+            }
+        }
+    }
+
+    return null; // All retries failed
+}
+
+/**
  * HTTP GET with timeout, retry, and smart proxy fallback
+ * Keeps trying new proxies until success or max attempts reached
  * @param {string} url - URL to fetch
  * @param {Object} [options] - Fetch options
  * @returns {Promise<Response>}
@@ -161,92 +225,50 @@ async function fetchWithRetry(url, options = {}) {
         }
     }
 
-    // Phase 2: Try with proxy (only for hdfilmcehennemi URLs)
+    // Phase 2: Try with proxies (only for hdfilmcehennemi URLs)
+    // Keep trying new proxies until success or max attempts reached
     if (useProxy && isProxyEnabled() && isHdfilmcehennemiUrl(url)) {
         log.info(`🔄 Proxy fallback activated for: ${url}`);
 
-        const proxy = await getWorkingProxy();
-        if (!proxy) {
-            log.error('No working proxy available');
-            throw lastError || new NetworkError('No working proxy available', url);
-        }
+        const triedProxies = new Set();
 
-        for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
-            try {
-                log.debug(`Fetch via proxy ${proxy} attempt ${attempt}/${CONFIG.maxRetries}: ${url}`);
+        for (let proxyAttempt = 1; proxyAttempt <= CONFIG.maxProxyAttempts; proxyAttempt++) {
+            const proxy = await getWorkingProxy();
 
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
-                const dispatcher = createProxyAgent(proxy);
-
-                try {
-                    const response = await fetch(url, {
-                        ...options,
-                        signal: controller.signal,
-                        dispatcher
-                    });
-                    clearTimeout(timeoutId);
-
-                    if (response.status === 403) {
-                        log.warn(`Proxy ${proxy} also blocked, marking as bad...`);
-                        markProxyBad(proxy);
-                        throw new NetworkError('Proxy blocked by Cloudflare', url, 403);
-                    }
-
-                    if (!response.ok) {
-                        throw new NetworkError(
-                            `HTTP ${response.status}: ${response.statusText}`,
-                            url,
-                            response.status
-                        );
-                    }
-
-                    log.info(`✅ Fetch via proxy success: ${url}`);
-                    return response;
-                } catch (error) {
-                    clearTimeout(timeoutId);
-                    throw error;
+            if (!proxy) {
+                log.warn(`No working proxy available (attempt ${proxyAttempt}/${CONFIG.maxProxyAttempts})`);
+                // Wait a bit before trying again to allow proxy refresh
+                if (proxyAttempt < CONFIG.maxProxyAttempts) {
+                    await sleep(2000);
                 }
-
-            } catch (error) {
-                lastError = error;
-
-                if (error.name === 'AbortError') {
-                    lastError = new TimeoutError(url, CONFIG.timeout);
-                }
-
-                if (attempt < CONFIG.maxRetries) {
-                    const delay = CONFIG.retryDelay * Math.pow(2, attempt - 1);
-                    log.warn(`Proxy request failed, retrying in ${delay}ms...`);
-                    await sleep(delay);
-                }
+                continue;
             }
-        }
 
-        // All retries failed - mark this proxy as bad and try to get a new one
-        log.warn(`Proxy ${proxy} failed after ${CONFIG.maxRetries} attempts, marking as bad...`);
-        markProxyBad(proxy);
-
-        // Try to get a new proxy
-        const newProxy = await getWorkingProxy();
-        if (newProxy && newProxy !== proxy) {
-            log.info(`🔄 Trying with new proxy: ${newProxy}`);
-            const dispatcher = createProxyAgent(newProxy);
-            try {
-                const response = await fetch(url, {
-                    ...options,
-                    signal: AbortSignal.timeout(CONFIG.timeout),
-                    dispatcher
-                });
-                if (response.ok) {
-                    log.info(`✅ Fetch via new proxy success: ${url}`);
-                    return response;
-                }
-            } catch (e) {
-                log.warn(`New proxy also failed: ${e.message}`);
-                markProxyBad(newProxy);
+            // Skip if we already tried this proxy
+            if (triedProxies.has(proxy)) {
+                log.debug(`Skipping already-tried proxy: ${proxy}`);
+                markProxyBad(proxy); // Force getting a different one next time
+                continue;
             }
+
+            triedProxies.add(proxy);
+            log.info(`📡 Trying proxy ${proxyAttempt}/${CONFIG.maxProxyAttempts}: ${proxy}`);
+
+            const response = await tryFetchWithProxy(url, proxy, options);
+
+            if (response) {
+                return response; // Success!
+            }
+
+            // Proxy failed, mark as bad and try next
+            log.warn(`Proxy ${proxy} failed after ${CONFIG.maxRetries} attempts, trying next proxy...`);
+            markProxyBad(proxy);
         }
+
+        lastError = new NetworkError(
+            `All ${CONFIG.maxProxyAttempts} proxy attempts failed`,
+            url
+        );
     }
 
     throw lastError || new NetworkError('All attempts failed', url);
@@ -318,14 +340,12 @@ function turkishToAscii(str) {
 
 /**
  * Search for content on HDFilmCehennemi
+ * NOTE: Search results are NOT cached because even when results are returned,
+ * the actual video extraction may fail. Fresh searches ensure retries work.
  * @param {string} query - Search query (IMDb ID or title)
  * @returns {Promise<Array<{url: string, title: string, year: number|null, type: string, slug: string}>>}
  */
 async function searchOnSite(query) {
-    const cacheKey = `search:${query}`;
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
     try {
         // AJAX search endpoint - uses ?q= parameter
         const searchUrl = `${BASE_URL}/search/?q=${encodeURIComponent(query)}`;
@@ -365,12 +385,6 @@ async function searchOnSite(query) {
         }
 
         log.info(`Search "${query}": ${results.length} results`);
-
-        // Only cache successful results (not empty searches)
-        if (results.length > 0) {
-            setCache(cacheKey, results);
-        }
-
         return results;
     } catch (error) {
         log.error(`Search failed: ${error.message}`);
@@ -456,64 +470,59 @@ function findBestMatch(results, targetTitle, targetYear = null) {
 
 /**
  * Find episode URL from series page
+ * NOTE: No caching here - caching happens at addon.js level on full success only
  * @param {string} seriesUrl - Series page URL
  * @param {number} season - Season number
  * @param {number} episode - Episode number
  * @returns {Promise<string|null>} Episode URL or null
  */
 async function findEpisodeUrl(seriesUrl, season, episode) {
-    const cacheKey = `episodes:${seriesUrl}`;
-    let episodes = getCached(cacheKey);
+    let episodes = [];
 
-    if (!episodes) {
-        try {
-            log.debug(`Fetching episodes from: ${seriesUrl}`);
-            const response = await fetchWithRetry(seriesUrl, { headers: defaultHeaders });
-            const html = await response.text();
-            const $ = cheerio.load(html);
+    try {
+        log.debug(`Fetching episodes from: ${seriesUrl}`);
+        const response = await fetchWithRetry(seriesUrl, { headers: defaultHeaders });
+        const html = await response.text();
+        const $ = cheerio.load(html);
 
-            episodes = [];
+        // Find episode links
+        $('a').each((i, el) => {
+            const href = $(el).attr('href');
+            if (href && href.includes('-sezon-') && href.includes('-bolum')) {
+                // Extract season and episode from URL
+                const match = href.match(/(\d+)-sezon-(\d+)-bolum/);
+                if (match) {
+                    episodes.push({
+                        url: href,
+                        season: parseInt(match[1]),
+                        episode: parseInt(match[2])
+                    });
+                }
+            }
+        });
 
-            // Find episode links
+        // Alternative format: sezon-X/bolum-Y
+        if (episodes.length === 0) {
             $('a').each((i, el) => {
                 const href = $(el).attr('href');
-                if (href && href.includes('-sezon-') && href.includes('-bolum')) {
-                    // Extract season and episode from URL
-                    const match = href.match(/(\d+)-sezon-(\d+)-bolum/);
-                    if (match) {
+                if (href && (href.includes('sezon') || href.includes('bolum'))) {
+                    const seasonMatch = href.match(/sezon[/-]?(\d+)/i);
+                    const episodeMatch = href.match(/bolum[/-]?(\d+)/i);
+                    if (seasonMatch && episodeMatch) {
                         episodes.push({
                             url: href,
-                            season: parseInt(match[1]),
-                            episode: parseInt(match[2])
+                            season: parseInt(seasonMatch[1]),
+                            episode: parseInt(episodeMatch[1])
                         });
                     }
                 }
             });
-
-            // Alternative format: sezon-X/bolum-Y
-            if (episodes.length === 0) {
-                $('a').each((i, el) => {
-                    const href = $(el).attr('href');
-                    if (href && (href.includes('sezon') || href.includes('bolum'))) {
-                        const seasonMatch = href.match(/sezon[/-]?(\d+)/i);
-                        const episodeMatch = href.match(/bolum[/-]?(\d+)/i);
-                        if (seasonMatch && episodeMatch) {
-                            episodes.push({
-                                url: href,
-                                season: parseInt(seasonMatch[1]),
-                                episode: parseInt(episodeMatch[1])
-                            });
-                        }
-                    }
-                });
-            }
-
-            log.debug(`Found ${episodes.length} episodes`);
-            setCache(cacheKey, episodes);
-        } catch (error) {
-            log.error(`Failed to get episodes: ${error.message}`);
-            return null;
         }
+
+        log.debug(`Found ${episodes.length} episodes`);
+    } catch (error) {
+        log.error(`Failed to get episodes: ${error.message}`);
+        return null;
     }
 
     // Find requested episode
