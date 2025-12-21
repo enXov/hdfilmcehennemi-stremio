@@ -73,7 +73,17 @@ builder.defineStreamHandler(async ({ type, id }) => {
     } catch (error) {
         const elapsed = Date.now() - startTime;
 
-        // Handle specific error types
+        // Helper to create an error stream that shows message to user
+        const errorStream = (title, description) => ({
+            streams: [{
+                name: 'HDFilmCehennemi',
+                title: `⚠️ ${title}`,
+                description: description,
+                externalUrl: 'https://www.hdfilmcehennemi.ws'
+            }]
+        });
+
+        // Handle specific error types with user-visible messages
         if (error instanceof ValidationError) {
             log.warn(`Validation error: ${error.message} (${elapsed}ms)`);
             return { streams: [] };
@@ -81,27 +91,42 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
         if (error instanceof ContentNotFoundError) {
             log.info(`Content not found: ${error.query} (${elapsed}ms)`);
-            return { streams: [] };
+            return errorStream(
+                'İçerik Bulunamadı',
+                'Bu içerik HDFilmCehennemi\'de mevcut değil.'
+            );
         }
 
         if (error instanceof ScrapingError) {
             log.warn(`Scraping error: ${error.message} (${elapsed}ms)`);
-            return { streams: [] };
+            return errorStream(
+                'İçerik Kaldırılmış',
+                'Bu içerik DMCA veya telif hakkı nedeniyle kaldırılmış olabilir.'
+            );
         }
 
         if (error instanceof TimeoutError) {
             log.error(`Timeout: ${error.url} (${elapsed}ms)`);
-            return { streams: [] };
+            return errorStream(
+                'Bağlantı Zaman Aşımı',
+                'Sunucu yanıt vermedi. Lütfen tekrar deneyin.'
+            );
         }
 
         if (error instanceof NetworkError) {
             log.error(`Network error: ${error.message} [${error.statusCode}] (${elapsed}ms)`);
-            return { streams: [] };
+            return errorStream(
+                'Bağlantı Hatası',
+                'HDFilmCehennemi\'ye bağlanılamadı.'
+            );
         }
 
         // Unknown error
         log.error(`Unexpected error: ${error.message} (${elapsed}ms)`, error);
-        return { streams: [] };
+        return errorStream(
+            'Bilinmeyen Hata',
+            'Bir hata oluştu. Lütfen daha sonra tekrar deneyin.'
+        );
     }
 });
 
