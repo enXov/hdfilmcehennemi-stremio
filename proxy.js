@@ -2,7 +2,7 @@
  * HDFilmCehennemi Stremio Addon - Proxy Module
  * 
  * Handles proxy list fetching, caching, and rotation for bypassing Cloudflare blocks.
- * Uses TheSpeedX proxy list by default.
+ * Uses ProxyScrape API with Turkey country filter by default.
  * 
  * @module proxy
  */
@@ -14,11 +14,12 @@ const log = createLogger('Proxy');
 
 // Configuration
 const CONFIG = {
-    proxyListUrl: process.env.PROXY_LIST_URL || 'https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt',
+    // ProxyScrape API with Turkey country filter - returns only Turkish proxies
+    proxyListUrl: process.env.PROXY_LIST_URL || 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=TR&ssl=all&anonymity=all',
     proxyEnabled: process.env.PROXY_ENABLED || 'auto', // 'auto' | 'always' | 'never'
-    cacheTTL: 30 * 60 * 1000, // 30 minutes
-    testTimeout: 5000, // 5 seconds for proxy test
-    maxProxiesToTest: 20, // Test at most this many proxies
+    cacheTTL: 10 * 60 * 1000, // 10 minutes (shorter since Turkish proxy list is smaller)
+    testTimeout: 8000, // 8 seconds for proxy test
+    maxProxiesToTest: 10, // Test fewer since they're already filtered
     testUrl: 'https://www.hdfilmcehennemi.ws/' // URL to test proxies against
 };
 
