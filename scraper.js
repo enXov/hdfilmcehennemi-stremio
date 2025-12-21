@@ -325,7 +325,7 @@ function rot13(str) {
 
 /**
  * Decode obfuscated video URL
- * Algorithm: join → ROT13 → reverse → base64 → character unmix
+ * Algorithm: join → ROT13 → base64 → reverse → character unmix
  * @param {string[]} parts - Array of encoded parts
  * @returns {string} Decoded video URL
  */
@@ -335,11 +335,11 @@ function decodeVideoUrl(parts) {
     // Step 1: ROT13 decode
     value = rot13(value);
 
-    // Step 2: Reverse
-    value = value.split('').reverse().join('');
-
-    // Step 3: Base64 decode (only once now)
+    // Step 2: Base64 decode
     value = Buffer.from(value, 'base64').toString('latin1');
+
+    // Step 3: Reverse
+    value = value.split('').reverse().join('');
 
     // Step 4: Character unmix with magic number
     let unmix = '';
@@ -386,7 +386,7 @@ async function scrapeIframe(iframeSrc) {
 
     log.debug(`Found ${result.subtitles.length} subtitles`);
 
-    // Decode packed JavaScript
+    // Method 1: Try packed JavaScript decoder (primary method)
     const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(.+)',(\d+),(\d+),'([^']+)'/s);
 
     if (packedMatch) {
@@ -402,31 +402,51 @@ async function scrapeIframe(iframeSrc) {
         if (partsMatch) {
             const parts = partsMatch[1].match(/"([^"]+)"/g).map(s => s.replace(/"/g, ''));
             result.videoUrl = decodeVideoUrl(parts);
-            log.debug(`Video URL extracted: ${result.videoUrl.substring(0, 80)}...`);
-        }
-
-        // Extract audio tracks from m3u8
-        if (result.videoUrl) {
-            try {
-                const m3u8Content = await httpGet(result.videoUrl, iframeSrc);
-                const baseM3u8 = result.videoUrl.substring(0, result.videoUrl.lastIndexOf('/'));
-                const audioRegex = /#EXT-X-MEDIA:TYPE=AUDIO.*?NAME="([^"]+)".*?URI="([^"]+)"/g;
-                let match;
-
-                while ((match = audioRegex.exec(m3u8Content)) !== null) {
-                    result.audioTracks.push({
-                        name: match[1],
-                        url: `${baseM3u8}/${match[2]}`
-                    });
-                }
-
-                log.debug(`Found ${result.audioTracks.length} audio tracks`);
-            } catch (error) {
-                log.warn(`Failed to fetch m3u8: ${error.message}`);
-            }
+            log.debug(`Video URL extracted from packed JS: ${result.videoUrl.substring(0, 80)}...`);
         }
     } else {
-        log.warn('No packed JavaScript found in iframe');
+        log.debug('No packed JavaScript found in iframe');
+    }
+
+    // Method 2: Fallback to JSON-LD schema (if packed JS failed)
+    if (!result.videoUrl) {
+        const jsonLdMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+        if (jsonLdMatch) {
+            try {
+                const jsonLd = JSON.parse(jsonLdMatch[1]);
+                if (jsonLd.contentUrl) {
+                    result.videoUrl = jsonLd.contentUrl;
+                    log.debug(`Video URL extracted from JSON-LD: ${result.videoUrl.substring(0, 80)}...`);
+                }
+            } catch (e) {
+                log.debug(`Failed to parse JSON-LD: ${e.message}`);
+            }
+        }
+    }
+
+    // Extract audio tracks from m3u8
+    if (result.videoUrl) {
+        try {
+            const m3u8Content = await httpGet(result.videoUrl, iframeSrc);
+            const baseM3u8 = result.videoUrl.substring(0, result.videoUrl.lastIndexOf('/'));
+            const audioRegex = /#EXT-X-MEDIA:TYPE=AUDIO.*?NAME="([^"]+)".*?URI="([^"]+)"/g;
+            let match;
+
+            while ((match = audioRegex.exec(m3u8Content)) !== null) {
+                result.audioTracks.push({
+                    name: match[1],
+                    url: `${baseM3u8}/${match[2]}`
+                });
+            }
+
+            log.debug(`Found ${result.audioTracks.length} audio tracks`);
+        } catch (error) {
+            log.warn(`Failed to fetch m3u8: ${error.message}`);
+        }
+    }
+
+    if (!result.videoUrl) {
+        log.warn('No video URL found in iframe');
     }
 
     return result;
