@@ -13,7 +13,7 @@ HDFilmCehennemi içeriklerini Stremio üzerinden izlemenizi sağlayan bir addon.
 
 ### Seçenek 1: Kendi Sunucunuzda Çalıştırma
 
-Bu addon'u kendi VPS/sunucunuzda çalıştırabilirsiniz. NOT: Stremio sadece HTTPs kabul ediyor, yani bir domain veya reverse proxy şart. Ve HDFilmCehennemine Türkiye dışından istek attığınız zaman cloudflare devreye giriyor, normal proxy de şart.
+Bu addon'u kendi VPS/sunucunuzda çalıştırabilirsiniz. NOT: Stremio sadece HTTPs kabul ediyor, yani bir domain veya reverse proxy şart.
 
 ### Seçenek 2: Yerel Olarak Çalıştırma
 
