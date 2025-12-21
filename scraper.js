@@ -168,16 +168,37 @@ function unpackJS(p, a, c, k) {
 }
 
 /**
+ * ROT13 cipher - shifts letters by 13 positions
+ * @param {string} str - String to decode
+ * @returns {string} ROT13 decoded string
+ */
+function rot13(str) {
+    return str.replace(/[a-zA-Z]/g, function (c) {
+        return String.fromCharCode(
+            (c <= 'Z' ? 90 : 122) >= (c = c.charCodeAt(0) + 13) ? c : c - 26
+        );
+    });
+}
+
+/**
  * Decode obfuscated video URL
+ * Algorithm: join → ROT13 → reverse → base64 → character unmix
  * @param {string[]} parts - Array of encoded parts
  * @returns {string} Decoded video URL
  */
 function decodeVideoUrl(parts) {
     let value = parts.join('');
+
+    // Step 1: ROT13 decode
+    value = rot13(value);
+
+    // Step 2: Reverse
     value = value.split('').reverse().join('');
-    value = Buffer.from(value, 'base64').toString('utf8');
+
+    // Step 3: Base64 decode (only once now)
     value = Buffer.from(value, 'base64').toString('latin1');
 
+    // Step 4: Character unmix with magic number
     let unmix = '';
     for (let i = 0; i < value.length; i++) {
         let charCode = value.charCodeAt(i);
