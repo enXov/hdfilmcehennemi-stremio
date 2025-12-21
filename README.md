@@ -13,7 +13,7 @@ HDFilmCehennemi içeriklerini Stremio üzerinden izlemenizi sağlayan bir addon.
 
 ### Seçenek 1: Kendi Sunucunuzda Çalıştırma
 
-Bu addon'u kendi VPS/sunucunuzda çalıştırabilirsiniz. Ben kendi VPS sunucumda domainsiz bir şekilde çalıştırdığım için link vermiyorum.
+Bu addon'u kendi VPS/sunucunuzda çalıştırabilirsiniz.
 
 ### Seçenek 2: Yerel Olarak Çalıştırma
 
@@ -60,6 +60,14 @@ PORT=8080 LOG_LEVEL=debug npm start
 
 ---
 
+## 🧪 Test
+
+```bash
+npm test
+```
+
+---
+
 ## 📁 Proje Yapısı
 
 ```
@@ -70,14 +78,6 @@ PORT=8080 LOG_LEVEL=debug npm start
 ├── errors.js     # Hata sınıfları
 ├── test.js       # Test scripti
 └── package.json
-```
-
----
-
-## 🧪 Test
-
-```bash
-npm test
 ```
 
 ---
