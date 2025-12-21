@@ -2,7 +2,7 @@
  * HDFilmCehennemi Stremio Addon - Proxy Module
  * 
  * Handles proxy list fetching, caching, and rotation for bypassing Cloudflare blocks.
- * Uses ProxyScrape API with Turkey country filter by default.
+ * Uses multiple proxy sources merged together for reliability.
  * 
  * @module proxy
  */
@@ -12,14 +12,22 @@ const { createLogger } = require('./logger');
 
 const log = createLogger('Proxy');
 
+// Multiple proxy sources for reliability - all filtered for Turkey
+const PROXY_SOURCES = [
+    // ProxyScrape - Turkey only
+    'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=TR&ssl=all&anonymity=all',
+    // Proxy-List.download - Turkey only
+    'https://www.proxy-list.download/api/v1/get?type=http&country=TR',
+    // Free Proxy List (geonode) - Turkey
+    'https://proxylist.geonode.com/api/proxy-list?country=TR&protocols=http&limit=50&page=1&sort_by=lastChecked&sort_type=desc',
+];
+
 // Configuration
 const CONFIG = {
-    // ProxyScrape API with Turkey country filter - returns only Turkish proxies
-    proxyListUrl: process.env.PROXY_LIST_URL || 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=TR&ssl=all&anonymity=all',
     proxyEnabled: process.env.PROXY_ENABLED || 'auto', // 'auto' | 'always' | 'never'
-    cacheTTL: 10 * 60 * 1000, // 10 minutes (shorter since Turkish proxy list is smaller)
+    cacheTTL: 10 * 60 * 1000, // 10 minutes
     testTimeout: 8000, // 8 seconds for proxy test
-    maxProxiesToTest: 10, // Test fewer since they're already filtered
+    maxProxiesToTest: 15, // Test more since we have more sources
     testUrl: 'https://www.hdfilmcehennemi.ws/' // URL to test proxies against
 };
 
@@ -31,8 +39,44 @@ let proxyListCache = {
 };
 
 /**
- * Fetch proxy list from ProxyScrape or custom URL
- * @returns {Promise<string[]>} Array of proxy strings (ip:port)
+ * Fetch proxies from a single source
+ * @param {string} url - Proxy source URL
+ * @returns {Promise<string[]>} Array of proxy strings
+ */
+async function fetchFromSource(url) {
+    try {
+        const response = await fetch(url, {
+            signal: AbortSignal.timeout(8000)
+        });
+
+        if (!response.ok) return [];
+
+        const text = await response.text();
+
+        // Handle JSON response (geonode format)
+        if (url.includes('geonode')) {
+            try {
+                const json = JSON.parse(text);
+                if (json.data && Array.isArray(json.data)) {
+                    return json.data.map(p => `${p.ip}:${p.port}`);
+                }
+            } catch { return []; }
+        }
+
+        // Handle plain text response
+        return text
+            .split(/[\n\r]+/)
+            .map(line => line.trim())
+            .filter(line => line && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(line));
+    } catch (error) {
+        log.debug(`Failed to fetch from ${url}: ${error.message}`);
+        return [];
+    }
+}
+
+/**
+ * Fetch and merge proxy lists from all sources
+ * @returns {Promise<string[]>} Array of unique proxy strings (ip:port)
  */
 async function fetchProxyList() {
     // Check cache
@@ -42,35 +86,25 @@ async function fetchProxyList() {
         return proxyListCache.proxies;
     }
 
-    try {
-        log.info(`Fetching proxy list from: ${CONFIG.proxyListUrl}`);
+    log.info(`Fetching proxies from ${PROXY_SOURCES.length} sources...`);
 
-        const response = await fetch(CONFIG.proxyListUrl, {
-            signal: AbortSignal.timeout(10000)
-        });
+    // Fetch from all sources in parallel
+    const results = await Promise.all(
+        PROXY_SOURCES.map(url => fetchFromSource(url))
+    );
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
+    // Merge and deduplicate
+    const allProxies = [...new Set(results.flat())];
 
-        const text = await response.text();
-        const proxies = text
-            .split('\n')
-            .map(line => line.trim())
-            .filter(line => line && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(line));
+    log.info(`Fetched ${allProxies.length} unique proxies from all sources`);
 
-        log.info(`Fetched ${proxies.length} proxies`);
-
+    if (allProxies.length > 0) {
         // Update cache - PRESERVE working proxies!
-        proxyListCache.proxies = proxies;
+        proxyListCache.proxies = allProxies;
         proxyListCache.timestamp = Date.now();
-        // Don't reset workingProxies - keep the ones that worked
-
-        return proxies;
-    } catch (error) {
-        log.error(`Failed to fetch proxy list: ${error.message}`);
-        return proxyListCache.proxies; // Return stale cache if available
     }
+
+    return allProxies.length > 0 ? allProxies : proxyListCache.proxies;
 }
 
 /**
