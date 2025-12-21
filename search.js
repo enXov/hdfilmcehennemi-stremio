@@ -562,7 +562,7 @@ async function findContent(type, imdbId, season = null, episode = null) {
 
     let match = null;
 
-    // 1. Search by IMDb ID first (most reliable)
+    // 1. Search by IMDb ID (only method - most reliable)
     log.debug(`Searching by IMDb ID: ${imdbId}`);
     const imdbResults = await searchOnSite(imdbId);
 
@@ -572,52 +572,10 @@ async function findContent(type, imdbId, season = null, episode = null) {
         log.info(`Found via IMDb ID: ${match.title} -> ${match.url}`);
     }
 
-    // 2. Fallback: Get title from Cinemeta and search by title
+    // No title-based fallback - IMDb ID search only for accuracy
     if (!match) {
-        log.info('IMDb ID search failed, trying title search...');
-
-        const meta = await getMetaFromCinemeta(type, imdbId);
-        if (!meta || !meta.name) {
-            log.warn('Could not get metadata from Cinemeta');
-            throw new ContentNotFoundError(imdbId, { type, reason: 'metadata_not_found' });
-        }
-
-        const title = meta.name;
-        const year = meta.year ? parseInt(meta.year) : null;
-        log.debug(`Title: ${title} (${year || 'unknown year'})`);
-
-        // Title search strategies
-        const searchQueries = [title];
-
-        if (meta.originalTitle && meta.originalTitle !== title) {
-            searchQueries.push(meta.originalTitle);
-        }
-
-        // First word fallback
-        const firstWord = title.split(/[\s:\-–—]+/)[0];
-        if (firstWord && firstWord.length >= 4) {
-            searchQueries.push(firstWord);
-        }
-
-        for (const query of searchQueries) {
-            if (match) break;
-
-            log.debug(`Searching: "${query}"`);
-            const searchResults = await searchOnSite(query);
-
-            if (searchResults.length > 0) {
-                match = findBestMatch(searchResults, title, year);
-
-                if (!match && meta.originalTitle) {
-                    match = findBestMatch(searchResults, meta.originalTitle, year);
-                }
-            }
-        }
-    }
-
-    if (!match) {
-        log.warn(`No match found for: ${imdbId}`);
-        throw new ContentNotFoundError(imdbId, { type });
+        log.warn(`No match found for IMDb ID: ${imdbId}`);
+        throw new ContentNotFoundError(imdbId, { type, reason: 'not_found_on_site' });
     }
 
     log.info(`Match found: ${match.title} -> ${match.url}`);
