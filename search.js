@@ -365,7 +365,12 @@ async function searchOnSite(query) {
         }
 
         log.info(`Search "${query}": ${results.length} results`);
-        setCache(cacheKey, results);
+
+        // Only cache successful results (not empty searches)
+        if (results.length > 0) {
+            setCache(cacheKey, results);
+        }
+
         return results;
     } catch (error) {
         log.error(`Search failed: ${error.message}`);
