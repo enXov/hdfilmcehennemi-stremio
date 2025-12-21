@@ -58,8 +58,19 @@ Addon varsayılan olarak `http://localhost:7000` adresinde çalışır.
 |----------|------------|----------|
 | `PORT` | 7000 | Sunucu portu |
 | `LOG_LEVEL` | info | Log seviyesi (debug, info, warn, error) |
+| `PROXY_ENABLED` | auto | Proxy modu: `auto` (gerektiğinde), `always` (her zaman), `never` (kapalı) |
+| `PROXY_LIST_URL` | ProxyScrape TR | Özel proxy listesi URL'i (opsiyonel) |
 
-Örnek:
+### Örnek .env
+
+```env
+PORT=7000
+LOG_LEVEL=info
+PROXY_ENABLED=auto
+# PROXY_LIST_URL=https://custom-proxy-list.com/tr.txt
+```
+
+Örnek kullanım:
 ```bash
 PORT=8080 LOG_LEVEL=debug npm start
 ```
