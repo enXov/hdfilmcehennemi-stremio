@@ -12,22 +12,14 @@ const { createLogger } = require('./logger');
 
 const log = createLogger('Proxy');
 
-// Multiple proxy sources for reliability - all filtered for Turkey
+// Multiple proxy sources for reliability - all filtered for Turkey only
 const PROXY_SOURCES = [
-    // ProxyScrape - Turkey HTTP proxies
+    // ProxyScrape - Turkey HTTP proxies (most reliable)
     'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=TR&ssl=all&anonymity=all',
     // Proxy-List.download - Turkey HTTP
     'https://www.proxy-list.download/api/v1/get?type=http&country=TR',
     // Geonode - Turkey HTTP (JSON format)
     'https://proxylist.geonode.com/api/proxy-list?country=TR&protocols=http&limit=50&page=1&sort_by=lastChecked&sort_type=desc',
-    // OpenProxyList - Turkey
-    'https://api.openproxy.space/lists/http?country=TR',
-    // Proxifly - Turkey
-    'https://cdn.proxifly.dev/proxies/protocols/http/countries/TR',
-    // TheSpeedX - Full list (we filter ourselves but has more options)
-    'https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt',
-    // monosans proxy list
-    'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt',
 ];
 
 // Configuration
