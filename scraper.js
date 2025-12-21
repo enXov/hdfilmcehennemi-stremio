@@ -243,6 +243,39 @@ async function httpGet(url, referer = null) {
                 releaseSlot();
             }
         }
+
+        // All retries failed - mark this proxy as bad and try to get a new one
+        log.warn(`Proxy ${proxy} failed after ${CONFIG.maxRetries} attempts, marking as bad...`);
+        markProxyBad(proxy);
+
+        // Try to get a new proxy
+        const newProxy = await getWorkingProxy();
+        if (newProxy && newProxy !== proxy) {
+            log.info(`🔄 Trying with new proxy: ${newProxy}`);
+            try {
+                await acquireSlot();
+                const dispatcher = createProxyAgent(newProxy);
+                const response = await fetch(url, {
+                    headers,
+                    signal: AbortSignal.timeout(CONFIG.timeout),
+                    dispatcher
+                });
+                releaseSlot();
+
+                if (response.ok) {
+                    const text = await response.text();
+                    if (!text.includes('cf-browser-verification') && !text.includes('Just a moment')) {
+                        log.info(`✅ HTTP GET via new proxy success: ${url} (${text.length} bytes)`);
+                        return text;
+                    }
+                }
+                markProxyBad(newProxy);
+            } catch (e) {
+                releaseSlot();
+                log.warn(`New proxy also failed: ${e.message}`);
+                markProxyBad(newProxy);
+            }
+        }
     }
 
     log.error(`All attempts failed for: ${url}`);

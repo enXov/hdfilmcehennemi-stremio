@@ -222,6 +222,31 @@ async function fetchWithRetry(url, options = {}) {
                 }
             }
         }
+
+        // All retries failed - mark this proxy as bad and try to get a new one
+        log.warn(`Proxy ${proxy} failed after ${CONFIG.maxRetries} attempts, marking as bad...`);
+        markProxyBad(proxy);
+
+        // Try to get a new proxy
+        const newProxy = await getWorkingProxy();
+        if (newProxy && newProxy !== proxy) {
+            log.info(`🔄 Trying with new proxy: ${newProxy}`);
+            const dispatcher = createProxyAgent(newProxy);
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: AbortSignal.timeout(CONFIG.timeout),
+                    dispatcher
+                });
+                if (response.ok) {
+                    log.info(`✅ Fetch via new proxy success: ${url}`);
+                    return response;
+                }
+            } catch (e) {
+                log.warn(`New proxy also failed: ${e.message}`);
+                markProxyBad(newProxy);
+            }
+        }
     }
 
     throw lastError || new NetworkError('All attempts failed', url);
