@@ -6,6 +6,7 @@
  * @module scraper
  */
 
+const cloudscraper = require('cloudscraper');
 const { fetch } = require('undici');
 const cheerio = require('cheerio');
 const { createLogger } = require('./logger');
@@ -88,30 +89,20 @@ async function httpGet(url, referer = null) {
             await acquireSlot();
             log.debug(`HTTP GET (attempt ${attempt}/${CONFIG.maxRetries}): ${url}`);
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
-
             try {
-                const response = await fetch(url, {
-                    headers,
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-
-                if (!response.ok) {
-                    throw new NetworkError(
-                        `HTTP ${response.status}: ${response.statusText}`,
-                        url,
-                        response.status
-                    );
-                }
-
-                const text = await response.text();
+                // Use cloudscraper for Cloudflare bypass
+                const text = await cloudscraper.get(url, { headers });
                 log.debug(`HTTP GET success: ${url} (${text.length} bytes)`);
                 return text;
-
             } catch (error) {
-                clearTimeout(timeoutId);
+                // Check for Cloudflare-specific errors
+                if (error.statusCode) {
+                    throw new NetworkError(
+                        `HTTP ${error.statusCode}: ${error.message}`,
+                        url,
+                        error.statusCode
+                    );
+                }
                 throw error;
             }
 
