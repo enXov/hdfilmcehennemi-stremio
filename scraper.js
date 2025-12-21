@@ -10,6 +10,7 @@ const { fetch } = require('undici');
 const cheerio = require('cheerio');
 const { createLogger } = require('./logger');
 const { ScrapingError, NetworkError, TimeoutError, RateLimitError } = require('./errors');
+const { getWorkingProxy, markProxyBad, createProxyAgent, isProxyEnabled, isProxyAlways } = require('./proxy');
 
 const log = createLogger('Scraper');
 
@@ -71,7 +72,16 @@ function sleep(ms) {
 }
 
 /**
- * HTTP GET request with timeout, retry, and rate limiting
+ * Check if URL is an HDFilmCehennemi domain (needs proxy)
+ * @param {string} url - URL to check
+ * @returns {boolean}
+ */
+function isHdfilmcehennemiUrl(url) {
+    return url.includes('hdfilmcehennemi.ws') || url.includes('hdfilmcehennemi.mobi');
+}
+
+/**
+ * HTTP GET request with timeout, retry, and smart proxy fallback
  * @param {string} url - URL to fetch
  * @param {string} [referer] - Optional referer header
  * @returns {Promise<string>} Response body as text
@@ -82,61 +92,161 @@ async function httpGet(url, referer = null) {
     if (referer) headers['Referer'] = referer;
 
     let lastError = null;
+    let useProxy = isProxyAlways() && isHdfilmcehennemiUrl(url);
 
-    for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
-        try {
-            await acquireSlot();
-            log.debug(`HTTP GET (attempt ${attempt}/${CONFIG.maxRetries}): ${url}`);
-
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
-
+    // Phase 1: Try direct connection (unless proxy is 'always')
+    if (!useProxy) {
+        for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
             try {
-                const response = await fetch(url, {
-                    headers,
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
+                await acquireSlot();
+                log.debug(`HTTP GET direct (attempt ${attempt}/${CONFIG.maxRetries}): ${url}`);
 
-                if (!response.ok) {
-                    throw new NetworkError(
-                        `HTTP ${response.status}: ${response.statusText}`,
-                        url,
-                        response.status
-                    );
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
+
+                try {
+                    const response = await fetch(url, {
+                        headers,
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+
+                    // Check for Cloudflare block (403)
+                    if (response.status === 403 && isHdfilmcehennemiUrl(url)) {
+                        log.warn(`Cloudflare block detected (403), will try proxy...`);
+                        useProxy = true;
+                        break;
+                    }
+
+                    if (!response.ok) {
+                        throw new NetworkError(
+                            `HTTP ${response.status}: ${response.statusText}`,
+                            url,
+                            response.status
+                        );
+                    }
+
+                    const text = await response.text();
+
+                    // Check for Cloudflare challenge page
+                    if (isHdfilmcehennemiUrl(url) &&
+                        (text.includes('cf-browser-verification') ||
+                            text.includes('Just a moment') ||
+                            text.includes('challenge-platform'))) {
+                        log.warn(`Cloudflare challenge detected, will try proxy...`);
+                        useProxy = true;
+                        break;
+                    }
+
+                    log.debug(`HTTP GET success: ${url} (${text.length} bytes)`);
+                    return text;
+
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    throw error;
                 }
 
-                const text = await response.text();
-                log.debug(`HTTP GET success: ${url} (${text.length} bytes)`);
-                return text;
-
             } catch (error) {
-                clearTimeout(timeoutId);
-                throw error;
+                lastError = error;
+
+                if (error.name === 'AbortError') {
+                    lastError = new TimeoutError(url, CONFIG.timeout);
+                } else if (!(error instanceof NetworkError)) {
+                    lastError = new NetworkError(error.message, url);
+                }
+
+                if (attempt < CONFIG.maxRetries) {
+                    const delay = CONFIG.retryDelay * Math.pow(2, attempt - 1);
+                    log.warn(`Request failed, retrying in ${delay}ms... (${error.message})`);
+                    await sleep(delay);
+                }
+
+            } finally {
+                releaseSlot();
             }
-
-        } catch (error) {
-            lastError = error;
-
-            if (error.name === 'AbortError') {
-                lastError = new TimeoutError(url, CONFIG.timeout);
-            } else if (!(error instanceof NetworkError)) {
-                lastError = new NetworkError(error.message, url);
-            }
-
-            if (attempt < CONFIG.maxRetries) {
-                const delay = CONFIG.retryDelay * Math.pow(2, attempt - 1);
-                log.warn(`Request failed, retrying in ${delay}ms... (${error.message})`);
-                await sleep(delay);
-            }
-
-        } finally {
-            releaseSlot();
         }
     }
 
-    log.error(`All ${CONFIG.maxRetries} attempts failed for: ${url}`);
-    throw lastError;
+    // Phase 2: Try with proxy (only for hdfilmcehennemi URLs)
+    if (useProxy && isProxyEnabled() && isHdfilmcehennemiUrl(url)) {
+        log.info(`🔄 Proxy fallback activated for: ${url}`);
+
+        const proxy = await getWorkingProxy();
+        if (!proxy) {
+            log.error('No working proxy available');
+            throw lastError || new NetworkError('No working proxy available', url);
+        }
+
+        for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
+            try {
+                await acquireSlot();
+                log.debug(`HTTP GET via proxy ${proxy} (attempt ${attempt}/${CONFIG.maxRetries}): ${url}`);
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
+                const dispatcher = createProxyAgent(proxy);
+
+                try {
+                    const response = await fetch(url, {
+                        headers,
+                        signal: controller.signal,
+                        dispatcher
+                    });
+                    clearTimeout(timeoutId);
+
+                    if (response.status === 403) {
+                        log.warn(`Proxy ${proxy} also blocked, marking as bad...`);
+                        markProxyBad(proxy);
+                        throw new NetworkError('Proxy blocked by Cloudflare', url, 403);
+                    }
+
+                    if (!response.ok) {
+                        throw new NetworkError(
+                            `HTTP ${response.status}: ${response.statusText}`,
+                            url,
+                            response.status
+                        );
+                    }
+
+                    const text = await response.text();
+
+                    // Verify not a Cloudflare challenge
+                    if (text.includes('cf-browser-verification') ||
+                        text.includes('Just a moment')) {
+                        log.warn(`Proxy ${proxy} got Cloudflare challenge, marking as bad...`);
+                        markProxyBad(proxy);
+                        throw new NetworkError('Proxy got Cloudflare challenge', url);
+                    }
+
+                    log.info(`✅ HTTP GET via proxy success: ${url} (${text.length} bytes)`);
+                    return text;
+
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    throw error;
+                }
+
+            } catch (error) {
+                lastError = error;
+
+                if (error.name === 'AbortError') {
+                    lastError = new TimeoutError(url, CONFIG.timeout);
+                }
+
+                if (attempt < CONFIG.maxRetries) {
+                    const delay = CONFIG.retryDelay * Math.pow(2, attempt - 1);
+                    log.warn(`Proxy request failed, retrying in ${delay}ms... (${error.message})`);
+                    await sleep(delay);
+                }
+
+            } finally {
+                releaseSlot();
+            }
+        }
+    }
+
+    log.error(`All attempts failed for: ${url}`);
+    throw lastError || new NetworkError('All attempts failed', url);
 }
 
 /**
