@@ -159,11 +159,9 @@ class RateLimitError extends HDFCError {
 }
 
 module.exports = {
-    HDFCError,
     ContentNotFoundError,
     ScrapingError,
     NetworkError,
     TimeoutError,
-    ValidationError,
-    RateLimitError
+    ValidationError
 };

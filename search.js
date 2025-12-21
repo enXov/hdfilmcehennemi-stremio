@@ -15,7 +15,6 @@ const { getWorkingProxy, markProxyBad, createProxyAgent, isProxyEnabled, isProxy
 const log = createLogger('Search');
 
 const BASE_URL = 'https://www.hdfilmcehennemi.ws';
-const CINEMETA_URL = 'https://cinemeta-live.strem.io/meta';
 
 // Configuration
 const CONFIG = {
@@ -274,69 +273,6 @@ async function fetchWithRetry(url, options = {}) {
     throw lastError || new NetworkError('All attempts failed', url);
 }
 
-/**
- * Get content metadata from Cinemeta API
- * @param {'movie'|'series'} type - Content type
- * @param {string} imdbId - IMDb ID
- * @returns {Promise<Object|null>} Content metadata or null
- */
-async function getMetaFromCinemeta(type, imdbId) {
-    const cacheKey = `meta:${type}:${imdbId}`;
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
-    try {
-        const url = `${CINEMETA_URL}/${type}/${imdbId}.json`;
-        log.debug(`Fetching metadata from Cinemeta: ${imdbId}`);
-
-        const response = await fetchWithRetry(url, { headers: defaultHeaders });
-        const data = await response.json();
-
-        if (data?.meta) {
-            setCache(cacheKey, data.meta);
-            log.debug(`Cinemeta returned: ${data.meta.name} (${data.meta.year || 'unknown year'})`);
-            return data.meta;
-        }
-
-        return null;
-    } catch (error) {
-        log.warn(`Cinemeta fetch failed: ${error.message}`);
-        return null;
-    }
-}
-
-/**
- * Normalize title for comparison
- * @param {string} title - Title to normalize
- * @returns {string} Normalized title
- */
-function normalizeTitle(title) {
-    return title
-        .toLowerCase()
-        .replace(/[''`]/g, "'")
-        .replace(/[""]/g, '"')
-        .replace(/[:\-–—]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-/**
- * Convert Turkish characters to ASCII (for URL slug matching)
- * @param {string} str - String to convert
- * @returns {string} ASCII string
- */
-function turkishToAscii(str) {
-    const map = {
-        'ç': 'c', 'Ç': 'C',
-        'ğ': 'g', 'Ğ': 'G',
-        'ı': 'i', 'İ': 'I',
-        'ö': 'o', 'Ö': 'O',
-        'ş': 's', 'Ş': 'S',
-        'ü': 'u', 'Ü': 'U'
-    };
-    return str.replace(/[çÇğĞıİöÖşŞüÜ]/g, char => map[char] || char);
-}
-
 
 /**
  * Search for content on HDFilmCehennemi
@@ -390,81 +326,6 @@ async function searchOnSite(query) {
         log.error(`Search failed: ${error.message}`);
         return [];
     }
-}
-
-/**
- * Calculate title similarity score (0-1)
- * @param {string} str1 - First title
- * @param {string} str2 - Second title
- * @returns {number} Similarity score
- */
-function calculateSimilarity(str1, str2) {
-    const s1 = normalizeTitle(str1);
-    const s2 = normalizeTitle(str2);
-
-    if (s1 === s2) return 1;
-
-    // Word-based comparison
-    const words1 = s1.split(' ').filter(w => w.length > 1);
-    const words2 = s2.split(' ').filter(w => w.length > 1);
-
-    let matches = 0;
-    for (const w1 of words1) {
-        if (words2.some(w2 => w2.includes(w1) || w1.includes(w2))) {
-            matches++;
-        }
-    }
-
-    const maxLen = Math.max(words1.length, words2.length);
-    return maxLen > 0 ? matches / maxLen : 0;
-}
-
-/**
- * Find best matching result from search results
- * @param {Array} results - Search results
- * @param {string} targetTitle - Target title
- * @param {number|null} [targetYear] - Target year
- * @returns {Object|null} Best match or null
- */
-function findBestMatch(results, targetTitle, targetYear = null) {
-    if (results.length === 0) return null;
-
-    let bestMatch = null;
-    let bestScore = 0;
-
-    for (const result of results) {
-        let score = calculateSimilarity(result.title, targetTitle);
-
-        // Year match bonus
-        if (targetYear && result.year) {
-            if (result.year === targetYear) {
-                score += 0.3;
-            } else if (Math.abs(result.year - targetYear) <= 1) {
-                score += 0.1;
-            }
-        }
-
-        // Slug contains title bonus
-        const slugNorm = normalizeTitle(turkishToAscii(result.slug));
-        const titleNorm = normalizeTitle(turkishToAscii(targetTitle));
-        if (slugNorm.includes(titleNorm.split(' ')[0])) {
-            score += 0.2;
-        }
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestMatch = result;
-        }
-    }
-
-    // Minimum threshold: 40% similarity
-    if (bestScore >= 0.4) {
-        log.debug(`Best match: "${bestMatch.title}" (score: ${bestScore.toFixed(2)})`);
-        return bestMatch;
-    }
-
-    log.debug(`No match above threshold (best score: ${bestScore.toFixed(2)})`);
-    return null;
 }
 
 
@@ -626,22 +487,9 @@ function clearCache() {
     log.info(`Cache cleared (${size} entries)`);
 }
 
-/**
- * Get cache statistics
- * @returns {{size: number, keys: string[]}}
- */
-function getCacheStats() {
-    return {
-        size: cache.size,
-        keys: Array.from(cache.keys())
-    };
-}
-
 module.exports = {
     findContent,
     searchOnSite,
-    getMetaFromCinemeta,
     clearCache,
-    getCacheStats,
     isValidImdbId
 };

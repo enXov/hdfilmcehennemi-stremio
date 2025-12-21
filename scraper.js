@@ -9,7 +9,7 @@
 const { fetch } = require('undici');
 const cheerio = require('cheerio');
 const { createLogger } = require('./logger');
-const { ScrapingError, NetworkError, TimeoutError, RateLimitError } = require('./errors');
+const { ScrapingError, NetworkError, TimeoutError } = require('./errors');
 const { getWorkingProxy, markProxyBad, createProxyAgent, isProxyEnabled, isProxyAlways } = require('./proxy');
 
 const log = createLogger('Scraper');
@@ -85,7 +85,7 @@ function isHdfilmcehennemiUrl(url) {
  * @param {string} url - URL to fetch
  * @param {string} [referer] - Optional referer header
  * @returns {Promise<string>} Response body as text
- * @throws {NetworkError|TimeoutError|RateLimitError}
+ * @throws {NetworkError|TimeoutError}
  */
 async function httpGet(url, referer = null) {
     const headers = { ...defaultHeaders };
@@ -547,39 +547,6 @@ async function getVideoAndSubtitles(pageUrl) {
     return result;
 }
 
-/**
- * Get list of episodes for a TV series
- * @param {string} seriesUrl - Series page URL
- * @returns {Promise<Array<{url: string, name: string}>>} List of episodes
- */
-async function getSeriesEpisodes(seriesUrl) {
-    log.debug(`Fetching episodes from: ${seriesUrl}`);
-
-    try {
-        const html = await httpGet(seriesUrl);
-        const $ = cheerio.load(html);
-
-        const episodes = [];
-        const seen = new Set();
-
-        $('a[href*="sezon"][href*="bolum"]').each((i, el) => {
-            const href = $(el).attr('href');
-            if (href && !seen.has(href)) {
-                episodes.push({
-                    url: href,
-                    name: $(el).text().trim() || href.split('/').slice(-2, -1)[0]
-                });
-                seen.add(href);
-            }
-        });
-
-        log.debug(`Found ${episodes.length} episodes`);
-        return episodes;
-    } catch (error) {
-        log.error(`Failed to get episodes: ${error.message}`);
-        return [];
-    }
-}
 
 /**
  * Convert scraping result to Stremio stream format
@@ -622,8 +589,5 @@ function toStremioStreams(result, title = 'HDFilmCehennemi') {
 
 module.exports = {
     getVideoAndSubtitles,
-    getSeriesEpisodes,
-    toStremioStreams,
-    BASE_URL,
-    EMBED_BASE
+    toStremioStreams
 };

@@ -112,4 +112,4 @@ function createLogger(context) {
     };
 }
 
-module.exports = { createLogger, LOG_LEVELS };
+module.exports = { createLogger };

@@ -270,8 +270,5 @@ module.exports = {
     markProxyBad,
     createProxyAgent,
     isProxyEnabled,
-    isProxyAlways,
-    clearProxyCache,
-    fetchProxyList,
-    testProxy
+    isProxyAlways
 };
