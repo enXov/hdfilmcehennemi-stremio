@@ -20,9 +20,10 @@ const EMBED_BASE = 'https://hdfilmcehennemi.mobi';
 // Configuration
 const CONFIG = {
     timeout: 15000,        // 15 seconds
-    maxRetries: 3,         // Number of retry attempts
+    maxRetries: 3,         // Number of retry attempts per proxy
     maxConcurrent: 5,      // Max concurrent requests
-    retryDelay: 1000       // Base delay for exponential backoff (ms)
+    retryDelay: 1000,      // Base delay for exponential backoff (ms)
+    maxProxyAttempts: 5    // Max number of different proxies to try
 };
 
 const defaultHeaders = {
@@ -78,6 +79,82 @@ function sleep(ms) {
  */
 function isHdfilmcehennemiUrl(url) {
     return url.includes('hdfilmcehennemi.ws') || url.includes('hdfilmcehennemi.mobi');
+}
+
+/**
+ * Try to fetch URL using a specific proxy with retries
+ * Returns response text on success, null on failure
+ * @param {string} url - URL to fetch
+ * @param {string} proxy - Proxy to use (ip:port)
+ * @param {Object} headers - Request headers
+ * @returns {Promise<string|null>} Response text or null if all retries failed
+ */
+async function tryFetchWithProxy(url, proxy, headers) {
+    for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
+        try {
+            await acquireSlot();
+            log.debug(`Fetch via proxy ${proxy} attempt ${attempt}/${CONFIG.maxRetries}: ${url}`);
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
+            const dispatcher = createProxyAgent(proxy);
+
+            try {
+                const response = await fetch(url, {
+                    headers,
+                    signal: controller.signal,
+                    dispatcher
+                });
+                clearTimeout(timeoutId);
+
+                if (response.status === 403) {
+                    log.warn(`Proxy ${proxy} blocked by Cloudflare (403)`);
+                    return null; // Proxy is blocked, don't retry
+                }
+
+                if (!response.ok) {
+                    throw new NetworkError(
+                        `HTTP ${response.status}: ${response.statusText}`,
+                        url,
+                        response.status
+                    );
+                }
+
+                const text = await response.text();
+
+                // Verify not a Cloudflare challenge
+                if (text.includes('cf-browser-verification') ||
+                    text.includes('Just a moment')) {
+                    log.warn(`Proxy ${proxy} got Cloudflare challenge`);
+                    return null; // Proxy got blocked
+                }
+
+                log.info(`✅ Fetch via proxy success: ${url} (${text.length} bytes)`);
+                return text;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                throw error;
+            }
+
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                log.warn(`Proxy ${proxy} timeout on attempt ${attempt}`);
+            } else {
+                log.warn(`Proxy ${proxy} failed on attempt ${attempt}: ${error.message}`);
+            }
+
+            if (attempt < CONFIG.maxRetries) {
+                const delay = CONFIG.retryDelay * Math.pow(2, attempt - 1);
+                log.warn(`Proxy request failed, retrying in ${delay}ms...`);
+                await sleep(delay);
+            }
+
+        } finally {
+            releaseSlot();
+        }
+    }
+
+    return null; // All retries failed
 }
 
 /**
@@ -167,115 +244,50 @@ async function httpGet(url, referer = null) {
         }
     }
 
-    // Phase 2: Try with proxy (only for hdfilmcehennemi URLs)
+    // Phase 2: Try with proxies (only for hdfilmcehennemi URLs)
+    // Keep trying new proxies until success or max attempts reached
     if (useProxy && isProxyEnabled() && isHdfilmcehennemiUrl(url)) {
         log.info(`🔄 Proxy fallback activated for: ${url}`);
 
-        const proxy = await getWorkingProxy();
-        if (!proxy) {
-            log.error('No working proxy available');
-            throw lastError || new NetworkError('No working proxy available', url);
-        }
+        const triedProxies = new Set();
 
-        for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
-            try {
-                await acquireSlot();
-                log.debug(`HTTP GET via proxy ${proxy} (attempt ${attempt}/${CONFIG.maxRetries}): ${url}`);
+        for (let proxyAttempt = 1; proxyAttempt <= CONFIG.maxProxyAttempts; proxyAttempt++) {
+            const proxy = await getWorkingProxy();
 
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
-                const dispatcher = createProxyAgent(proxy);
-
-                try {
-                    const response = await fetch(url, {
-                        headers,
-                        signal: controller.signal,
-                        dispatcher
-                    });
-                    clearTimeout(timeoutId);
-
-                    if (response.status === 403) {
-                        log.warn(`Proxy ${proxy} also blocked, marking as bad...`);
-                        markProxyBad(proxy);
-                        throw new NetworkError('Proxy blocked by Cloudflare', url, 403);
-                    }
-
-                    if (!response.ok) {
-                        throw new NetworkError(
-                            `HTTP ${response.status}: ${response.statusText}`,
-                            url,
-                            response.status
-                        );
-                    }
-
-                    const text = await response.text();
-
-                    // Verify not a Cloudflare challenge
-                    if (text.includes('cf-browser-verification') ||
-                        text.includes('Just a moment')) {
-                        log.warn(`Proxy ${proxy} got Cloudflare challenge, marking as bad...`);
-                        markProxyBad(proxy);
-                        throw new NetworkError('Proxy got Cloudflare challenge', url);
-                    }
-
-                    log.info(`✅ HTTP GET via proxy success: ${url} (${text.length} bytes)`);
-                    return text;
-
-                } catch (error) {
-                    clearTimeout(timeoutId);
-                    throw error;
+            if (!proxy) {
+                log.warn(`No working proxy available (attempt ${proxyAttempt}/${CONFIG.maxProxyAttempts})`);
+                // Wait a bit before trying again to allow proxy refresh
+                if (proxyAttempt < CONFIG.maxProxyAttempts) {
+                    await sleep(2000);
                 }
-
-            } catch (error) {
-                lastError = error;
-
-                if (error.name === 'AbortError') {
-                    lastError = new TimeoutError(url, CONFIG.timeout);
-                }
-
-                if (attempt < CONFIG.maxRetries) {
-                    const delay = CONFIG.retryDelay * Math.pow(2, attempt - 1);
-                    log.warn(`Proxy request failed, retrying in ${delay}ms... (${error.message})`);
-                    await sleep(delay);
-                }
-
-            } finally {
-                releaseSlot();
+                continue;
             }
-        }
 
-        // All retries failed - mark this proxy as bad and try to get a new one
-        log.warn(`Proxy ${proxy} failed after ${CONFIG.maxRetries} attempts, marking as bad...`);
-        markProxyBad(proxy);
-
-        // Try to get a new proxy
-        const newProxy = await getWorkingProxy();
-        if (newProxy && newProxy !== proxy) {
-            log.info(`🔄 Trying with new proxy: ${newProxy}`);
-            try {
-                await acquireSlot();
-                const dispatcher = createProxyAgent(newProxy);
-                const response = await fetch(url, {
-                    headers,
-                    signal: AbortSignal.timeout(CONFIG.timeout),
-                    dispatcher
-                });
-                releaseSlot();
-
-                if (response.ok) {
-                    const text = await response.text();
-                    if (!text.includes('cf-browser-verification') && !text.includes('Just a moment')) {
-                        log.info(`✅ HTTP GET via new proxy success: ${url} (${text.length} bytes)`);
-                        return text;
-                    }
-                }
-                markProxyBad(newProxy);
-            } catch (e) {
-                releaseSlot();
-                log.warn(`New proxy also failed: ${e.message}`);
-                markProxyBad(newProxy);
+            // Skip if we already tried this proxy
+            if (triedProxies.has(proxy)) {
+                log.debug(`Skipping already-tried proxy: ${proxy}`);
+                markProxyBad(proxy); // Force getting a different one next time
+                continue;
             }
+
+            triedProxies.add(proxy);
+            log.info(`📡 Trying proxy ${proxyAttempt}/${CONFIG.maxProxyAttempts}: ${proxy}`);
+
+            // Try this proxy with retries
+            const result = await tryFetchWithProxy(url, proxy, headers);
+            if (result) {
+                return result;
+            }
+
+            // Proxy failed, mark as bad and try next
+            log.warn(`Proxy ${proxy} failed after ${CONFIG.maxRetries} attempts, trying next proxy...`);
+            markProxyBad(proxy);
         }
+
+        lastError = new NetworkError(
+            `All ${CONFIG.maxProxyAttempts} proxy attempts failed`,
+            url
+        );
     }
 
     log.error(`All attempts failed for: ${url}`);
