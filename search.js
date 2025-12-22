@@ -24,9 +24,7 @@ const CONFIG = {
     maxProxyAttempts: 5    // Max number of different proxies to try
 };
 
-// Simple in-memory cache
-const cache = new Map();
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 
 const defaultHeaders = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -71,30 +69,7 @@ function isValidEpisodeNumber(value) {
     return !isNaN(num) && num > 0 && num < 1000;
 }
 
-/**
- * Get cached data or null if expired
- * @param {string} key - Cache key
- * @returns {*} Cached data or null
- */
-function getCached(key) {
-    const item = cache.get(key);
-    if (item && Date.now() - item.timestamp < CACHE_TTL) {
-        log.debug(`Cache hit: ${key}`);
-        return item.data;
-    }
-    cache.delete(key);
-    return null;
-}
 
-/**
- * Store data in cache
- * @param {string} key - Cache key
- * @param {*} data - Data to cache
- */
-function setCache(key, data) {
-    cache.set(key, { data, timestamp: Date.now() });
-    log.debug(`Cache set: ${key}`);
-}
 
 /**
  * Try to fetch URL using a specific proxy with retries
@@ -478,18 +453,8 @@ async function findContent(type, imdbId, season = null, episode = null) {
     };
 }
 
-/**
- * Clear all cached data
- */
-function clearCache() {
-    const size = cache.size;
-    cache.clear();
-    log.info(`Cache cleared (${size} entries)`);
-}
-
 module.exports = {
     findContent,
     searchOnSite,
-    clearCache,
     isValidImdbId
 };
