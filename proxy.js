@@ -13,13 +13,14 @@ const { createLogger } = require('./logger');
 const log = createLogger('Proxy');
 
 // Multiple proxy sources for reliability - all filtered for Turkey only
+// Using anonymity=all to get maximum proxy availability (transparent/anonymous/elite all work for our use case)
 const PROXY_SOURCES = [
-    // ProxyScrape - Turkey HTTP proxies (most reliable)
-    'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=TR&ssl=all&anonymity=all',
-    // Proxy-List.download - Turkey HTTP
+    // ProxyScrape - Turkey HTTP proxies (most reliable, ~11 proxies)
+    'https://api.proxyscrape.com/v4/free-proxy-list/get?request=displayproxies&protocol=http&timeout=10000&country=TR&ssl=all&anonymity=all&skip=0',
+    // Proxy-List.download - Turkey HTTP (no anon filter = all anonymity levels)
     'https://www.proxy-list.download/api/v1/get?type=http&country=TR',
-    // Geonode - Turkey HTTP (JSON format)
-    'https://proxylist.geonode.com/api/proxy-list?country=TR&protocols=http&limit=50&page=1&sort_by=lastChecked&sort_type=desc',
+    // Geonode - Turkey HTTP (JSON format, no anonymity filter = all levels)
+    'https://proxylist.geonode.com/api/proxy-list?country=TR&protocols=http&page=1&sort_by=lastChecked&sort_type=desc&limit=100',
 ];
 
 // Configuration
