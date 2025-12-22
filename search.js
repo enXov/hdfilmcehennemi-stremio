@@ -74,14 +74,14 @@ function isValidEpisodeNumber(value) {
 /**
  * Try to fetch URL using a specific proxy with retries
  * @param {string} url - URL to fetch
- * @param {string} proxy - Proxy to use (ip:port)
+ * @param {{address: string, type: string}} proxy - Proxy object with address and type
  * @param {Object} options - Fetch options
  * @returns {Promise<Response|null>} Response or null if all retries failed
  */
 async function tryFetchWithProxy(url, proxy, options) {
     for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
         try {
-            log.debug(`Fetch via proxy ${proxy} attempt ${attempt}/${CONFIG.maxRetries}: ${url}`);
+            log.debug(`Fetch via proxy ${proxy.type}://${proxy.address} attempt ${attempt}/${CONFIG.maxRetries}: ${url}`);
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
@@ -96,7 +96,7 @@ async function tryFetchWithProxy(url, proxy, options) {
                 clearTimeout(timeoutId);
 
                 if (response.status === 403) {
-                    log.warn(`Proxy ${proxy} blocked by Cloudflare (403)`);
+                    log.warn(`Proxy ${proxy.type}://${proxy.address} blocked by Cloudflare (403)`);
                     return null; // Proxy is blocked, don't retry
                 }
 
@@ -117,9 +117,9 @@ async function tryFetchWithProxy(url, proxy, options) {
 
         } catch (error) {
             if (error.name === 'AbortError') {
-                log.warn(`Proxy ${proxy} timeout on attempt ${attempt}`);
+                log.warn(`Proxy ${proxy.type}://${proxy.address} timeout on attempt ${attempt}`);
             } else {
-                log.warn(`Proxy ${proxy} failed on attempt ${attempt}: ${error.message}`);
+                log.warn(`Proxy ${proxy.type}://${proxy.address} failed on attempt ${attempt}: ${error.message}`);
             }
 
             if (attempt < CONFIG.maxRetries) {
@@ -218,15 +218,15 @@ async function fetchWithRetry(url, options = {}) {
                 continue;
             }
 
-            // Skip if we already tried this proxy
-            if (triedProxies.has(proxy)) {
-                log.debug(`Skipping already-tried proxy: ${proxy}`);
+            // Skip if we already tried this proxy (compare by address)
+            if (triedProxies.has(proxy.address)) {
+                log.debug(`Skipping already-tried proxy: ${proxy.type}://${proxy.address}`);
                 markProxyBad(proxy); // Force getting a different one next time
                 continue;
             }
 
-            triedProxies.add(proxy);
-            log.info(`📡 Trying proxy ${proxyAttempt}/${CONFIG.maxProxyAttempts}: ${proxy}`);
+            triedProxies.add(proxy.address);
+            log.info(`📡 Trying proxy ${proxyAttempt}/${CONFIG.maxProxyAttempts}: ${proxy.type}://${proxy.address}`);
 
             const response = await tryFetchWithProxy(url, proxy, options);
 
@@ -235,7 +235,7 @@ async function fetchWithRetry(url, options = {}) {
             }
 
             // Proxy failed, mark as bad and try next
-            log.warn(`Proxy ${proxy} failed after ${CONFIG.maxRetries} attempts, trying next proxy...`);
+            log.warn(`Proxy ${proxy.type}://${proxy.address} failed after ${CONFIG.maxRetries} attempts, trying next proxy...`);
             markProxyBad(proxy);
         }
 
