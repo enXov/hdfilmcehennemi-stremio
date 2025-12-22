@@ -173,6 +173,10 @@ app.get('/proxy/m3u8', async (req, res) => {
         log.debug(`Proxy m3u8: ${videoUrl.substring(0, 80)}...`);
         log.debug(`Referer: ${referer}`);
 
+        // Get base URL for rewriting relative paths
+        const urlObj = new URL(videoUrl);
+        const baseUrl = videoUrl.substring(0, videoUrl.lastIndexOf('/') + 1);
+
         // Fetch m3u8 with Referer header
         const response = await fetch(videoUrl, {
             headers: {
@@ -187,7 +191,26 @@ app.get('/proxy/m3u8', async (req, res) => {
             return res.status(response.status).send('Failed to fetch m3u8');
         }
 
-        const content = await response.text();
+        let content = await response.text();
+
+        // Rewrite relative URLs to absolute URLs
+        // Match lines that don't start with # and aren't absolute URLs
+        content = content.split('\n').map(line => {
+            const trimmed = line.trim();
+            // Skip comments and empty lines
+            if (trimmed.startsWith('#') || trimmed === '') {
+                // But check for URI= in comments (like audio tracks)
+                if (trimmed.includes('URI="') && !trimmed.includes('URI="http')) {
+                    return trimmed.replace(/URI="([^"]+)"/g, `URI="${baseUrl}$1"`);
+                }
+                return line;
+            }
+            // If it's a relative URL, make it absolute
+            if (!trimmed.startsWith('http')) {
+                return baseUrl + trimmed;
+            }
+            return line;
+        }).join('\n');
 
         // Return m3u8 content with proper headers
         res.set('Content-Type', 'application/vnd.apple.mpegurl');
