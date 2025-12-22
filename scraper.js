@@ -582,22 +582,34 @@ async function getVideoAndSubtitles(pageUrl) {
  * 
  * @param {Object} result - Scraping result from getVideoAndSubtitles
  * @param {string} [title='HDFilmCehennemi'] - Stream title
+ * @param {string} [baseUrl] - Base URL for m3u8 proxy (e.g., https://your-server.com)
  * @returns {{streams: Array}} Stremio-compatible stream response
  */
-function toStremioStreams(result, title = 'HDFilmCehennemi') {
+function toStremioStreams(result, title = 'HDFilmCehennemi', baseUrl = null) {
     if (!result || !result.videoUrl) return { streams: [] };
 
     // Use the embed origin from scraping result, fallback to EMBED_BASE
     // Critical: Rapidrame videos need hdfilmcehennemi.ws as Referer
     //           Close videos need hdfilmcehennemi.mobi as Referer
     const embedOrigin = result.embedOrigin || EMBED_BASE;
+    const referer = embedOrigin + '/';
+
+    // Generate proxied URL for TV compatibility (libVLC doesn't support proxyHeaders)
+    // PC clients can still use behaviorHints.proxyHeaders
+    let streamUrl = result.videoUrl;
+    if (baseUrl) {
+        const encodedUrl = Buffer.from(result.videoUrl).toString('base64');
+        const encodedRef = Buffer.from(referer).toString('base64');
+        streamUrl = `${baseUrl}/proxy/m3u8?url=${encodedUrl}&ref=${encodedRef}`;
+    }
 
     // Video server requires Referer header - returns 404 without it
+    // This is for PC clients that support proxyHeaders
     const behaviorHints = {
         notWebReady: true,
         proxyHeaders: {
             request: {
-                'Referer': embedOrigin + '/',
+                'Referer': referer,
                 'Origin': embedOrigin
             }
         }
@@ -606,7 +618,7 @@ function toStremioStreams(result, title = 'HDFilmCehennemi') {
     // Return single stream - audio tracks selectable via player from m3u8
     return {
         streams: [{
-            url: result.videoUrl,
+            url: streamUrl,
             title: title,
             name: 'HDFilmCehennemi',
             behaviorHints: behaviorHints,

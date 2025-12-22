@@ -5,7 +5,7 @@
  */
 
 const { getVideoAndSubtitles, toStremioStreams } = require('./scraper');
-const { findContent, searchOnSite, isValidImdbId, clearCache } = require('./search');
+const { findContent, searchOnSite, isValidImdbId } = require('./search');
 const { createLogger } = require('./logger');
 const { ContentNotFoundError, ScrapingError, ValidationError } = require('./errors');
 
@@ -153,7 +153,7 @@ async function runTests() {
     log.info(`Environment: LOG_LEVEL=${process.env.LOG_LEVEL || 'info'}`);
     console.log('');
 
-    clearCache();
+
 
     const startTime = Date.now();
 
