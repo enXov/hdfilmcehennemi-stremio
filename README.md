@@ -27,7 +27,7 @@ eğer plugin'i render.com gibi servisler ile çalıştırmayı denerseniz yakla�
 
 sunucunuzun nginx ayarlarından timeout ayarını arttırmak isteyebilirsiniz, free proxyler bazen kafayı yiyebiliyor xd burayı bi, ara düzenlemek lazım yazılar kötü gözüküyor xd
 
-ben bu eklentiyi asıl olarak televizyondan izlemek için yapmıtşım. Fakat bu eklentiyi tv'den denediğiniz zaman nedense streamio android ve tv uygulaması tam olarak destek vermiyor, proxyHeaders ve bazı şeylere destek vermiyor. O yüzden tüm video url'yi yani direkt olarak tüm filmi veya bölümü sunucunuzu proxysilenerek izleniyor.
+ben bu eklentiyi asıl olarak televizyondan izlemek için yapmıtşım. Fakat bu eklentiyi tv'den denediğiniz zaman nedense streamio android ve tv uygulaması tam olarak destek vermiyor, proxyHeaders ve bazı şeylere destek vermiyor. O yüzden tüm video url'yi yani direkt olarak tüm filmi veya bölümü sunucu proxysilenerek izleniyor.
 
 ### Seçenek 2: Yerel Olarak Çalıştırma
 
