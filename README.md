@@ -27,6 +27,8 @@ eğer plugin'i render.com gibi servisler ile çalıştırmayı denerseniz yakla�
 
 sunucunuzun nginx ayarlarından timeout ayarını arttırmak isteyebilirsiniz, free proxyler bazen kafayı yiyebiliyor xd burayı bi, ara düzenlemek lazım yazılar kötü gözüküyor xd
 
+ben bu eklentiyi asıl olarak televizyondan izlemek için yapmıtşım. Fakat bu eklentiyi tv'den denediğiniz zaman nedense streamio android ve tv uygulaması tam olarak destek vermiyor, proxyHeaders ve bazı şeylere destek vermiyor. O yüzden tüm video url'yi yani direkt olarak tüm filmi veya bölümü sunucunuzu proxysilenerek izleniyor.
+
 ### Seçenek 2: Yerel Olarak Çalıştırma
 
 Bilgisayarınızda yerel olarak çalıştırabilirsiniz (sadece aynı ağdaki cihazlarda çalışır).
@@ -63,17 +65,17 @@ Addon varsayılan olarak `http://localhost:7000` adresinde çalışır.
 | Değişken | Varsayılan | Açıklama |
 |----------|------------|----------|
 | `PORT` | 7000 | Sunucu portu |
+| `BASE_URL` | http://localhost:7000 | Addon sunucusunun public URL'i (TV oynatımı için gerekli) |
 | `LOG_LEVEL` | info | Log seviyesi (debug, info, warn, error) |
 | `PROXY_ENABLED` | auto | Proxy modu: `auto` (gerektiğinde), `always` (her zaman), `never` (kapalı) |
-| `PROXY_LIST_URL` | ProxyScrape TR | Özel proxy listesi URL'i (opsiyonel) |
 
 ### Örnek .env
 
 ```env
 PORT=7000
+BASE_URL=http://localhost:7000
 LOG_LEVEL=info
 PROXY_ENABLED=auto
-# PROXY_LIST_URL=https://custom-proxy-list.com/tr.txt
 ```
 
 Örnek kullanım:
