@@ -501,6 +501,19 @@ async function getVideoAndSubtitles(pageUrl) {
 
     log.debug(`Found ${altSources.length} alternative sources`);
 
+    // Extract embed origin from iframe URL for Referer header
+    const getEmbedOrigin = (url) => {
+        try {
+            const parsed = new URL(url);
+            return parsed.origin;
+        } catch {
+            return BASE_URL; // Fallback to main site
+        }
+    };
+
+    // Track which iframe source was actually used
+    let usedIframeSrc = iframeSrc;
+
     // Try active source
     let result = null;
     try {
@@ -534,6 +547,7 @@ async function getVideoAndSubtitles(pageUrl) {
                     if (altResult && altResult.videoUrl) {
                         result = altResult;
                         result.source = alt.name;
+                        usedIframeSrc = altIframeSrc; // Track which iframe worked
                         log.info(`Alternative source succeeded: ${alt.name}`);
                         break;
                     }
@@ -554,7 +568,9 @@ async function getVideoAndSubtitles(pageUrl) {
     }
 
     result.alternativeSources = altSources;
-    log.info(`Video extraction successful (source: ${result.source || 'default'})`);
+    // Store the embed origin for Referer header - critical for Rapidrame playback
+    result.embedOrigin = getEmbedOrigin(usedIframeSrc);
+    log.info(`Video extraction successful (source: ${result.source || 'default'}, embedOrigin: ${result.embedOrigin})`);
 
     return result;
 }
@@ -571,13 +587,18 @@ async function getVideoAndSubtitles(pageUrl) {
 function toStremioStreams(result, title = 'HDFilmCehennemi') {
     if (!result || !result.videoUrl) return { streams: [] };
 
+    // Use the embed origin from scraping result, fallback to EMBED_BASE
+    // Critical: Rapidrame videos need hdfilmcehennemi.ws as Referer
+    //           Close videos need hdfilmcehennemi.mobi as Referer
+    const embedOrigin = result.embedOrigin || EMBED_BASE;
+
     // Video server requires Referer header - returns 404 without it
     const behaviorHints = {
         notWebReady: true,
         proxyHeaders: {
             request: {
-                'Referer': EMBED_BASE + '/',
-                'Origin': EMBED_BASE
+                'Referer': embedOrigin + '/',
+                'Origin': embedOrigin
             }
         }
     };
