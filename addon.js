@@ -7,6 +7,9 @@
  * @module addon
  */
 
+// Load environment variables from .env file
+require('dotenv').config();
+
 const { addonBuilder, getRouter } = require('stremio-addon-sdk');
 const express = require('express');
 const { fetch } = require('undici');

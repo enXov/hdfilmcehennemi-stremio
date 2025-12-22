@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "socks-proxy-agent": "^8.0.5",
     "stremio-addon-sdk": "^1.6.10",
