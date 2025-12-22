@@ -17,11 +17,13 @@ Bu addon'u kendi VPS/sunucunuzda çalıştırabilirsiniz.
 
 NOTLAR:
 Stremio sadece HTTPs kabul ediyor, yani bir domain veya reverse proxy şart.
-Eğer sunucunuz Türkiye dışında ise ki genellikle dışında olur o zaman normal proxy'e ihtiyacınız var. HDFilmCehennemi nedense erişimi Türkiye dışındaki ülkelere erişimi kısıtlamış(cloudflare). Fakat özellikle proxy belirlemenizi önermem çünkü şuanda public free https proxy list kullanıyoruz Türkiye lokasyonlu.
+Eğer sunucunuz Türkiye dışında ise ki genellikle dışında olur o zaman normal proxy'e ihtiyacınız var. HDFilmCehennemi nedense erişimi Türkiye dışındaki ülkelere erişimi kısıtlamış(cloudflare). Fakat özellikle proxy belirlemenizi önermem çünkü şuanda public free http, socks4, socks5 proxy list kullanıyoruz Türkiye lokasyonlu.
 
-FREE PUBLIC PROXY LIST GÜVENİLİR Mİ??????: kişiden kişiye değişir fakat %99.99999 ihtimal ile güvenli, proxy sahibi sadece SUNUCUNUZUN nereye istek attığını, SUNUCUNUZUN IP adresini görüyor ve bazı başka gereksiz şeyleri de görüyor fakat görse bir şey olmaz çünkü atılan istek zaten HDFilmCehennemi sitesi bunu bilse bir şey olmaz. Sadece search/scraping için proxy kullanıyoruz, video url normal bir şekilde proxysiz oynatılıyor.
+FREE PUBLIC PROXY LIST GÜVENİLİR Mİ??????: kişiden kişiye değişir fakat %99.99999 ihtimal ile güvenli, proxy sahibi sadece nereye istek attığınızı(hdfilmcehennemi) ve SUNUCUNUZUN IP adresini görüyor ve bazı başka gereksiz şeyleri de görüyor fakat görse bir şey olmaz çünkü atılan istek zaten HDFilmCehennemi sitesi bunu bilse bir şey olmaz. Sadece search/scraping için proxy kullanıyoruz, video url normal bir şekilde proxysiz oynatılıyor.
 
 EĞER LOCALHOST DA ÇALIŞTIRIYOR İSENİZ PROXY AKTİF OLMAYACAKTIR!
+
+eğer plugin'i render.com gibi servisler ile çalıştırmayı denerseniz yaklaşık 3-4 dakika da bazen de hiç bir sonuç alamayabilirsiniz. Bu yüzden kendi sunucunuzda çalıştırmayı gözden geçirin. Şu an tüm proxy sourcelar merge edilip aynı anda 100 tanesi deneniyor bunu istemiyorsanız kodu inceleyip kendinize göre düzeltirsiniz. Şu anda free olarak toplam 80-85 tane var hepsi birleşince. Ben kendi sunucumda çalıştırdığım zaman 10 saniyeden küçük bir rakamda sonuç bulabiliyor yani demem o ki bunun için paralı bir proxy'e falan ihtiyaç yok.
 
 ### Seçenek 2: Yerel Olarak Çalıştırma
 
