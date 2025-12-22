@@ -25,6 +25,8 @@ EĞER LOCALHOST DA ÇALIŞTIRIYOR İSENİZ PROXY AKTİF OLMAYACAKTIR!
 
 eğer plugin'i render.com gibi servisler ile çalıştırmayı denerseniz yaklaşık 3-4 dakika da bazen de hiç bir sonuç alamayabilirsiniz. Bu yüzden kendi sunucunuzda çalıştırmayı gözden geçirin. Şu an tüm proxy sourcelar merge edilip aynı anda 100 tanesi deneniyor bunu istemiyorsanız kodu inceleyip kendinize göre düzeltirsiniz. Şu anda free olarak toplam 80-85 tane var hepsi birleşince. Ben kendi sunucumda çalıştırdığım zaman 10 saniyeden küçük bir rakamda sonuç bulabiliyor yani demem o ki bunun için paralı bir proxy'e falan ihtiyaç yok.
 
+sunucunuzun nginx ayarlarından timeout ayarını arttırmak isteyebilirsiniz, free proxyler bazen kafayı yiyebiliyor xd burayı bi, ara düzenlemek lazım yazılar kötü gözüküyor xd
+
 ### Seçenek 2: Yerel Olarak Çalıştırma
 
 Bilgisayarınızda yerel olarak çalıştırabilirsiniz (sadece aynı ağdaki cihazlarda çalışır).
