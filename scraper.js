@@ -337,21 +337,22 @@ function rot13(str) {
 
 /**
  * Decode obfuscated video URL
- * Algorithm: join → ROT13 → base64 → reverse → character unmix
+ * Algorithm: join → reverse → base64 → ROT13 → character unmix
+ * (Updated Dec 2025 - site changed algorithm order)
  * @param {string[]} parts - Array of encoded parts
  * @returns {string} Decoded video URL
  */
 function decodeVideoUrl(parts) {
     let value = parts.join('');
 
-    // Step 1: ROT13 decode
-    value = rot13(value);
+    // Step 1: Reverse the string
+    value = value.split('').reverse().join('');
 
     // Step 2: Base64 decode
     value = Buffer.from(value, 'base64').toString('latin1');
 
-    // Step 3: Reverse
-    value = value.split('').reverse().join('');
+    // Step 3: ROT13 decode
+    value = rot13(value);
 
     // Step 4: Character unmix with magic number
     let unmix = '';
