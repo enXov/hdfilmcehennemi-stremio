@@ -2,6 +2,8 @@
 
 HDFilmCehennemi içeriklerini Stremio üzerinden izlemenizi sağlayan bir addon.
 
+maintain hakkında: hdfilmcehennemi 1 haftalık gözlemime göre her gün bazende günde 2 defa şifreleme algoritmasını değiştiriyor. Bunu çözmek için kodu güncelledim fakat farklı bir adım eklerse tekrardan güncellemek gerekecek. Kısacası kullanmadan önce 'node test' yazarsanız eğer orda şifrelenmiş bir şey yok ise sıkıntı yok demektir fakat var ise de issue açabilirsiniz çözmeye çalışırım, bu aralar çok fazla film/dizi izleyemiyorum her gün bakamıyorum maalesef.
+
 ## Özellikler
 
 - 🎬 Film ve dizi desteği
