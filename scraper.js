@@ -336,25 +336,11 @@ function rot13(str) {
 }
 
 /**
- * Decode obfuscated video URL
- * Algorithm: join → reverse → base64 → ROT13 → character unmix
- * (Updated Dec 2025 - site changed algorithm order)
- * @param {string[]} parts - Array of encoded parts
- * @returns {string} Decoded video URL
+ * Apply character unmix with magic number
+ * @param {string} value - String to unmix
+ * @returns {string} Unmixed string
  */
-function decodeVideoUrl(parts) {
-    let value = parts.join('');
-
-    // Step 1: Reverse the string
-    value = value.split('').reverse().join('');
-
-    // Step 2: Base64 decode
-    value = Buffer.from(value, 'base64').toString('latin1');
-
-    // Step 3: ROT13 decode
-    value = rot13(value);
-
-    // Step 4: Character unmix with magic number
+function characterUnmix(value) {
     let unmix = '';
     for (let i = 0; i < value.length; i++) {
         let charCode = value.charCodeAt(i);
@@ -362,6 +348,90 @@ function decodeVideoUrl(parts) {
         unmix += String.fromCharCode(charCode);
     }
     return unmix;
+}
+
+/**
+ * Try to decode with ROT13 first, then base64
+ * @param {string} reversed - Reversed string
+ * @returns {string} Decoded string
+ */
+function decodeVariant1(reversed) {
+    // ROT13 → base64 → unmix
+    let value = rot13(reversed);
+    value = Buffer.from(value, 'base64').toString('latin1');
+    return characterUnmix(value);
+}
+
+/**
+ * Try to decode with base64 first, then ROT13
+ * @param {string} reversed - Reversed string
+ * @returns {string} Decoded string
+ */
+function decodeVariant2(reversed) {
+    // base64 → ROT13 → unmix
+    let value = Buffer.from(reversed, 'base64').toString('latin1');
+    value = rot13(value);
+    return characterUnmix(value);
+}
+
+/**
+ * Validate if a decoded string is a valid video URL
+ * @param {string} url - Decoded URL candidate
+ * @returns {boolean} True if it looks like a valid video URL
+ */
+function isValidVideoUrl(url) {
+    return url &&
+        typeof url === 'string' &&
+        url.startsWith('https://') &&
+        (url.includes('.m3u8') || url.includes('/hls/') || url.includes('.mp4'));
+}
+
+/**
+ * Decode obfuscated video URL with auto-detection
+ * The site rotates between two algorithm orders:
+ *   - Variant 1: join → reverse → ROT13 → base64 → unmix
+ *   - Variant 2: join → reverse → base64 → ROT13 → unmix
+ * 
+ * This function tries both and returns the one that produces a valid URL.
+ * 
+ * @param {string[]} parts - Array of encoded parts
+ * @returns {string} Decoded video URL
+ */
+function decodeVideoUrl(parts) {
+    const value = parts.join('');
+
+    // Step 1: Reverse the string (always first)
+    const reversed = value.split('').reverse().join('');
+
+    // Try Variant 1: ROT13 → base64 → unmix
+    try {
+        const result1 = decodeVariant1(reversed);
+        if (isValidVideoUrl(result1)) {
+            log.debug('Video URL decoded using Variant 1 (ROT13 → base64)');
+            return result1;
+        }
+    } catch (e) {
+        log.debug(`Variant 1 failed: ${e.message}`);
+    }
+
+    // Try Variant 2: base64 → ROT13 → unmix
+    try {
+        const result2 = decodeVariant2(reversed);
+        if (isValidVideoUrl(result2)) {
+            log.debug('Video URL decoded using Variant 2 (base64 → ROT13)');
+            return result2;
+        }
+    } catch (e) {
+        log.debug(`Variant 2 failed: ${e.message}`);
+    }
+
+    // If neither produced a valid URL, return Variant 1 result (for debugging)
+    log.warn('Neither algorithm variant produced a valid URL, returning Variant 1 result');
+    try {
+        return decodeVariant1(reversed);
+    } catch (e) {
+        return decodeVariant2(reversed);
+    }
 }
 
 /**
