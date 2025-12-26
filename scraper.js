@@ -375,6 +375,20 @@ function decodeVariant2(reversed) {
 }
 
 /**
+ * Try to decode with base64 first, then reverse, then ROT13
+ * NEW algorithm as of Dec 2025 - reverse happens AFTER base64
+ * @param {string} value - Raw joined string (not reversed)
+ * @returns {string} Decoded string
+ */
+function decodeVariant3(value) {
+    // base64 → reverse → ROT13 → unmix
+    let result = Buffer.from(value, 'base64').toString('latin1');
+    result = result.split('').reverse().join('');
+    result = rot13(result);
+    return characterUnmix(result);
+}
+
+/**
  * Validate if a decoded string is a valid video URL
  * @param {string} url - Decoded URL candidate
  * @returns {boolean} True if it looks like a valid video URL
@@ -388,11 +402,12 @@ function isValidVideoUrl(url) {
 
 /**
  * Decode obfuscated video URL with auto-detection
- * The site rotates between two algorithm orders:
+ * The site rotates between multiple algorithm orders:
  *   - Variant 1: join → reverse → ROT13 → base64 → unmix
  *   - Variant 2: join → reverse → base64 → ROT13 → unmix
+ *   - Variant 3: join → base64 → reverse → ROT13 → unmix (NEW Dec 2025)
  * 
- * This function tries both and returns the one that produces a valid URL.
+ * This function tries all variants and returns the one that produces a valid URL.
  * 
  * @param {string[]} parts - Array of encoded parts
  * @returns {string} Decoded video URL
@@ -400,8 +415,19 @@ function isValidVideoUrl(url) {
 function decodeVideoUrl(parts) {
     const value = parts.join('');
 
-    // Step 1: Reverse the string (always first)
+    // For Variants 1 & 2: Reverse the string first
     const reversed = value.split('').reverse().join('');
+
+    // Try Variant 3 FIRST: base64 → reverse → ROT13 → unmix (NEW - most current)
+    try {
+        const result3 = decodeVariant3(value);
+        if (isValidVideoUrl(result3)) {
+            log.debug('Video URL decoded using Variant 3 (base64 → reverse → ROT13)');
+            return result3;
+        }
+    } catch (e) {
+        log.debug(`Variant 3 failed: ${e.message}`);
+    }
 
     // Try Variant 1: ROT13 → base64 → unmix
     try {
@@ -425,12 +451,16 @@ function decodeVideoUrl(parts) {
         log.debug(`Variant 2 failed: ${e.message}`);
     }
 
-    // If neither produced a valid URL, return Variant 1 result (for debugging)
-    log.warn('Neither algorithm variant produced a valid URL, returning Variant 1 result');
+    // If none produced a valid URL, try Variant 3 and return (for debugging)
+    log.warn('No algorithm variant produced a valid URL, returning Variant 3 result');
     try {
-        return decodeVariant1(reversed);
+        return decodeVariant3(value);
     } catch (e) {
-        return decodeVariant2(reversed);
+        try {
+            return decodeVariant1(reversed);
+        } catch (e2) {
+            return decodeVariant2(reversed);
+        }
     }
 }
 
